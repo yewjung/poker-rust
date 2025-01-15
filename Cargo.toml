@@ -4,4 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+eyre = "0.6.12"
 rand = "0.8.4"
+thiserror = "2.0.11"
+
+[dev-dependencies]
+rstest = "0.24.0"
