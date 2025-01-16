@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use eyre::{ensure, Result};
-use poker::{Card, Evaluator};
+use poker::{box_cards, Card, Evaluator};
 
 use crate::domain::deck::Deck;
 
@@ -59,9 +59,8 @@ impl Room {
         let mut winners = Vec::with_capacity(self.players.len());
         let mut best_hand = None;
         for player in &self.players {
-            let mut hand = player.hand.0.to_vec();
-            hand.extend_from_slice(&self.community_cards);
-            let hand = self.evaluator.evaluate(&hand)?;
+            let hand = box_cards!(player.hand.0, self.community_cards);
+            let hand = self.evaluator.evaluate(hand)?;
             match best_hand {
                 None => {
                     best_hand = Some(hand);
