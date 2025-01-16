@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 eyre = "0.6.12"
+poker = "0.6.4"
 rand = "0.8.4"
 thiserror = "2.0.11"
 

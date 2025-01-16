@@ -1,8 +1,22 @@
-use rand::Rng;
 use eyre::{ensure, Result};
+use poker::{Card, Rank, Suit};
+use rand::Rng;
 
 use crate::error::Error::{EmptyDeck, InvalidPosition};
 
+// static u64s
+const P: u64 = 0x5555555555555555;
+const Q: u64 = 0x3333333333333333;
+const R: u64 = 0x0f0f0f0f0f0f0f0f;
+const S: u64 = 0x00ff00ff00ff00ff;
+
+const MASK_1: u64 = 0xff;
+const MASK_2: u64 = 0xf;
+const MASK_3: u64 = 0x7;
+const MASK_4: u64 = 0x3;
+const MASK_5: u64 = 0x1;
+
+#[derive(Debug)]
 pub struct Deck(u64);
 
 const FULL_DECK_INT: u64 = 0x000f_ffff_ffff_ffff;
@@ -12,7 +26,7 @@ impl Deck {
         Deck(FULL_DECK_INT)
     }
 
-    pub fn draw(&mut self) -> Result<u64> {
+    pub fn draw(&mut self) -> Result<Card> {
         let ones = self.0.count_ones();
         // TODO: Optimize RNG by creating a pool of generators
         let n = rand::thread_rng().gen_range(1..=ones);
@@ -22,7 +36,36 @@ impl Deck {
 
         // Flip the nth trailing bit
         self.0 &= !(1 << position);
-        Ok(position)
+        Ok(Card::new(i_to_rank(position), i_to_suit(position)))
+    }
+}
+
+fn i_to_rank(i: u64) -> Rank {
+    match i % 13 {
+        0 => Rank::Two,
+        1 => Rank::Three,
+        2 => Rank::Four,
+        3 => Rank::Five,
+        4 => Rank::Six,
+        5 => Rank::Seven,
+        6 => Rank::Eight,
+        7 => Rank::Nine,
+        8 => Rank::Ten,
+        9 => Rank::Jack,
+        10 => Rank::Queen,
+        11 => Rank::King,
+        12 => Rank::Ace,
+        _ => unreachable!(),
+    }
+}
+
+fn i_to_suit(i: u64) -> Suit {
+    match i / 13 {
+        0 => Suit::Spades,
+        1 => Suit::Hearts,
+        2 => Suit::Diamonds,
+        3 => Suit::Clubs,
+        _ => unreachable!(),
     }
 }
 /// Returns the position of the nth (1-indexed) leading 1 bit in v.
@@ -32,10 +75,10 @@ impl Deck {
 fn pos_of_leading_1_bit(mut r: u64, v: u64) -> Result<u64> {
     ensure!(v > 0, EmptyDeck);
     ensure!(r <= v.count_ones().into(), InvalidPosition(r));
-    let a = (v & 0x5555555555555555) + ((v >> 1) & 0x5555555555555555);
-    let b = (a & 0x3333333333333333) + ((a >> 2) & 0x3333333333333333);
-    let c = (b & 0x0f0f0f0f0f0f0f0f) + ((b >> 4) & 0x0f0f0f0f0f0f0f0f);
-    let d = (c & 0x00ff00ff00ff00ff) + ((c >> 8) & 0x00ff00ff00ff00ff);
+    let a = (v & P) + ((v >> 1) & P);
+    let b = (a & Q) + ((a >> 2) & Q);
+    let c = (b & R) + ((b >> 4) & R);
+    let d = (c & S) + ((c >> 8) & S);
 
     let mut t = (d >> 32) + (d >> 48);
     t &= (1 << 16) - 1;
@@ -47,31 +90,31 @@ fn pos_of_leading_1_bit(mut r: u64, v: u64) -> Result<u64> {
         s -= 32;
         r -= t;
     }
-    t = (d >> (s - 16)) & 0xff;
+    t = (d >> (s - 16)) & MASK_1;
 
     if r > t {
         s -= 16;
         r -= t;
     }
-    t = (c >> (s - 8)) & 0xf;
+    t = (c >> (s - 8)) & MASK_2;
 
     if r > t {
         s -= 8;
         r -= t;
     }
-    t = (b >> (s - 4)) & 0x7;
+    t = (b >> (s - 4)) & MASK_3;
 
     if r > t {
         s -= 4;
         r -= t;
     }
-    t = (a >> (s - 2)) & 0x3;
+    t = (a >> (s - 2)) & MASK_4;
 
     if r > t {
         s -= 2;
         r -= t;
     }
-    t  = (v >> (s - 1)) & 0x1;
+    t = (v >> (s - 1)) & MASK_5;
 
     if r > t {
         s -= 1;
@@ -81,9 +124,9 @@ fn pos_of_leading_1_bit(mut r: u64, v: u64) -> Result<u64> {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-    use crate::error::Error;
     use super::*;
+    use crate::error::Error;
+    use std::collections::HashSet;
 
     #[test]
     fn make_sure_full_deck_int_has_only_52_trailing_1_bits() {
@@ -91,7 +134,7 @@ mod tests {
     }
 
     #[test]
-    fn test_pos_of_trailing_1_bit() -> Result<()>{
+    fn test_pos_of_trailing_1_bit() -> Result<()> {
         let deck: u64 = 0b0111_1100;
         assert_eq!(5, pos_of_leading_1_bit(3, deck)?);
         Ok(())
@@ -100,7 +143,7 @@ mod tests {
     #[test]
     fn test_pos_of_trailing_1_bit_with_empty_deck() {
         let deck: u64 = 0;
-        let error =  pos_of_leading_1_bit(0, deck).unwrap_err();
+        let error = pos_of_leading_1_bit(0, deck).unwrap_err();
         let error = error.downcast_ref::<Error>();
         assert!(matches!(error, Some(Error::EmptyDeck)));
     }
@@ -115,9 +158,10 @@ mod tests {
     #[test]
     fn test_draw() -> Result<()> {
         let mut deck = Deck::new();
-        let all_cards = (0..52).map(|_| deck.draw()).collect::<Result<HashSet<_>>>()?;
+        let all_cards = (0..52)
+            .map(|_| deck.draw())
+            .collect::<Result<HashSet<_>>>()?;
         assert_eq!(52, all_cards.len());
-        assert_eq!(all_cards.symmetric_difference(&(0..52).collect::<HashSet<_>>()).count(), 0);
         assert_eq!(deck.0, 0);
 
         Ok(())
