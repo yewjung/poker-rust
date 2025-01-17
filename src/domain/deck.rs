@@ -4,18 +4,6 @@ use rand::Rng;
 
 use crate::error::Error::{EmptyDeck, InvalidPosition};
 
-// static u64s
-const P: u64 = 0x5555555555555555;
-const Q: u64 = 0x3333333333333333;
-const R: u64 = 0x0f0f0f0f0f0f0f0f;
-const S: u64 = 0x00ff00ff00ff00ff;
-
-const MASK_1: u64 = 0xff;
-const MASK_2: u64 = 0xf;
-const MASK_3: u64 = 0x7;
-const MASK_4: u64 = 0x3;
-const MASK_5: u64 = 0x1;
-
 #[derive(Debug)]
 pub struct Deck(u64);
 
@@ -35,7 +23,7 @@ impl Deck {
         let position = pos_of_leading_1_bit(n as u64, self.0)? - 1;
 
         // Flip the nth trailing bit
-        self.0 &= !(1 << position);
+        self.0 -= 1 << position;
         Ok(Card::new(i_to_rank(position), i_to_suit(position)))
     }
 }
@@ -75,10 +63,10 @@ fn i_to_suit(i: u64) -> Suit {
 fn pos_of_leading_1_bit(mut r: u64, v: u64) -> Result<u64> {
     ensure!(v > 0, EmptyDeck);
     ensure!(r <= v.count_ones().into(), InvalidPosition(r));
-    let a = (v & P) + ((v >> 1) & P);
-    let b = (a & Q) + ((a >> 2) & Q);
-    let c = (b & R) + ((b >> 4) & R);
-    let d = (c & S) + ((c >> 8) & S);
+    let a = (v & 0x5555555555555555) + ((v >> 1) & 0x5555555555555555);
+    let b = (a & 0x3333333333333333) + ((a >> 2) & 0x3333333333333333);
+    let c = (b & 0x0f0f0f0f0f0f0f0f) + ((b >> 4) & 0x0f0f0f0f0f0f0f0f);
+    let d = (c & 0x00ff00ff00ff00ff) + ((c >> 8) & 0x00ff00ff00ff00ff);
 
     let mut t = (d >> 32) + (d >> 48);
     t &= (1 << 16) - 1;
@@ -90,31 +78,31 @@ fn pos_of_leading_1_bit(mut r: u64, v: u64) -> Result<u64> {
         s -= 32;
         r -= t;
     }
-    t = (d >> (s - 16)) & MASK_1;
+    t = (d >> (s - 16)) & 0xff;
 
     if r > t {
         s -= 16;
         r -= t;
     }
-    t = (c >> (s - 8)) & MASK_2;
+    t = (c >> (s - 8)) & 0xf;
 
     if r > t {
         s -= 8;
         r -= t;
     }
-    t = (b >> (s - 4)) & MASK_3;
+    t = (b >> (s - 4)) & 0x7;
 
     if r > t {
         s -= 4;
         r -= t;
     }
-    t = (a >> (s - 2)) & MASK_4;
+    t = (a >> (s - 2)) & 0x3;
 
     if r > t {
         s -= 2;
         r -= t;
     }
-    t = (v >> (s - 1)) & MASK_5;
+    t = (v >> (s - 1)) & 0x1;
 
     if r > t {
         s -= 1;

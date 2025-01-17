@@ -5,9 +5,11 @@ edition = "2021"
 
 [dependencies]
 eyre = "0.6.12"
+lazy_static = "1.5.0"
 poker = "0.6.4"
 rand = "0.8.4"
 thiserror = "2.0.11"
+uuid = { version = "1.12.0", features = ["v4"] }
 
 [dev-dependencies]
 rstest = "0.24.0"

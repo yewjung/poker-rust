@@ -13,8 +13,8 @@ fn main() -> Result<()> {
     let evaluator = Arc::new(Evaluator::new());
 
     let mut room = Room::new("room1".to_string(), evaluator);
-    room.add_player("Alice".to_string())?;
-    room.add_player("Bob".to_string())?;
+    room.add_player("Alice".to_string(), 500)?;
+    room.add_player("Bob".to_string(), 500)?;
 
     for _ in 0..5 {
         room.deal_community_card()?;
