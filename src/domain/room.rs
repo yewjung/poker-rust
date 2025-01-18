@@ -1,32 +1,24 @@
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use eyre::{ensure, ContextCompat, Result};
-use lazy_static::lazy_static;
 use poker::{box_cards, Card, Evaluator};
 use uuid::Uuid;
 
 use crate::domain::deck::Deck;
-
-lazy_static! {
-    static ref DEALER_POSITIONS: HashSet<Position> =
-        { HashSet::from([Position::Dealer, Position::DealerAndSmallBlind,]) };
-}
 
 pub struct Room {
     pub id: String,
     pub players: Vec<Player>,
     pub deck: Deck,
     pub community_cards: Vec<Card>,
-    pub evaluator: Arc<Evaluator>,
     pub stage: Stage,
+    pub pot: u32,
 }
 
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Player {
     id: Uuid,
-    #[allow(dead_code)]
     name: String,
     hand: Hand,
     chips: u32,
@@ -35,7 +27,7 @@ pub struct Player {
     position: Position,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 enum Stage {
     PreFlop,
     Flop,
@@ -44,16 +36,16 @@ enum Stage {
     Showdown,
 }
 
-#[derive(Eq, Hash, PartialEq, Clone)]
+#[derive(Eq, Hash, PartialEq, Clone, Ord, PartialOrd)]
+#[cfg_attr(test, derive(Debug))]
 enum Position {
     Normal,
-    SmallBlind,
     BigBlind,
-    Dealer,
+    SmallBlind,
     DealerAndSmallBlind,
+    Dealer,
 }
 
-#[allow(dead_code)]
 enum Action {
     Fold,
     Check,
@@ -63,45 +55,51 @@ enum Action {
 
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
-struct Hand([Card; 2]);
+pub struct Hand(pub [Card; 2]);
 
 impl Room {
-    pub fn new(id: String, evaluator: Arc<Evaluator>) -> Self {
+    pub fn new(id: String) -> Self {
         Room {
             id,
             players: Vec::new(),
             deck: Deck::new(),
             community_cards: Vec::with_capacity(5),
-            evaluator,
             stage: Stage::PreFlop,
+            pot: 0,
         }
     }
 
-    fn readjust_positions(&mut self, dealer: &Player) -> Result<()> {
+    fn readjust_positions(&mut self, dealer_id: Uuid) -> Result<()> {
         let total_players = self.players.len();
         let dealer_position = self
             .players
             .iter()
-            .position(|p| p.id == dealer.id)
+            .position(|p| p.id == dealer_id)
             .wrap_err("Dealer not found")?;
-        (dealer_position..).take(total_players).for_each(|i| {
-            let p = self.players.get_mut(i % total_players).unwrap();
-            if total_players > 2 {
-                p.position = match i {
-                    0 => Position::Dealer,
-                    1 => Position::SmallBlind,
-                    2 => Position::BigBlind,
-                    _ => Position::Normal,
+        (dealer_position..)
+            .take(total_players)
+            .enumerate()
+            .try_for_each(|(i, pos)| {
+                let p = self
+                    .players
+                    .get_mut(pos % total_players)
+                    .wrap_err("Player not found")?;
+                if total_players > 2 {
+                    p.position = match i {
+                        0 => Position::Dealer,
+                        1 => Position::SmallBlind,
+                        2 => Position::BigBlind,
+                        _ => Position::Normal,
+                    }
+                } else {
+                    p.position = match i {
+                        0 => Position::DealerAndSmallBlind,
+                        1 => Position::BigBlind,
+                        _ => unreachable!("Only maximum two players in the room"),
+                    }
                 }
-            } else {
-                p.position = match i {
-                    0 => Position::DealerAndSmallBlind,
-                    1 => Position::BigBlind,
-                    _ => unreachable!("Only maximum two players in the room"),
-                }
-            }
-        });
-        Ok(())
+                Ok(())
+            })
     }
 
     pub fn add_player(&mut self, name: String, buy_in: u32) -> Result<()> {
@@ -115,11 +113,12 @@ impl Room {
             has_folded: false,
             position: Position::Normal,
         });
-        let players = self.players.clone();
-        let dealer = players
+        let dealer = self
+            .players
             .iter()
-            .find(|p| DEALER_POSITIONS.contains(&p.position))
-            .wrap_err("Dealer not found")?;
+            .max_by(|a, b| a.position.cmp(&b.position))
+            .map(|p| p.id)
+            .wrap_err("No players")?;
         self.readjust_positions(dealer)
     }
 
@@ -132,33 +131,22 @@ impl Room {
         Ok(())
     }
 
-    pub fn winners(&self) -> Result<Vec<&Player>> {
-        ensure!(
-            self.community_cards.len() == 5,
-            "All community cards must be dealt"
-        );
-        let mut winners = Vec::with_capacity(self.players.len());
-        let mut best_hand = None;
-        for player in &self.players {
-            let hand = box_cards!(player.hand.0, self.community_cards);
-            let hand = self.evaluator.evaluate(hand)?;
-            match best_hand {
-                None => {
-                    best_hand = Some(hand);
-                    winners.push(player);
-                }
-                Some(best) if hand.is_better_than(best) => {
-                    best_hand = Some(hand);
-                    winners.clear();
-                    winners.push(player);
-                }
-                Some(best) if hand.is_equal_to(best) => {
-                    winners.push(player);
-                }
-                _ => {}
-            }
-        }
-        Ok(winners)
+    pub fn players_cards(&self) -> Vec<(Uuid, Box<[Card]>)> {
+        self.players
+            .iter()
+            .map(|p| (p.id, box_cards!(p.hand.0, self.community_cards)))
+            .collect()
+    }
+
+    pub fn players_of_ids(&self, ids: HashSet<Uuid>) -> Vec<&Player> {
+        self.players
+            .iter()
+            .filter(|p| ids.contains(&p.id))
+            .collect()
+    }
+
+    pub fn is_showdown(&self) -> bool {
+        self.stage == Stage::Showdown && self.community_cards.len() == 5
     }
 
     /// Check if all non-folded players have the same bet
@@ -173,25 +161,36 @@ impl Room {
     }
 }
 
+impl Stage {
+    fn next(&self) -> Self {
+        match self {
+            Stage::PreFlop => Stage::Flop,
+            Stage::Flop => Stage::Turn,
+            Stage::Turn => Stage::River,
+            Stage::River => Stage::Showdown,
+            Stage::Showdown => Stage::PreFlop,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::game::GameService;
     use poker::{card, cards};
 
     #[test]
     fn test_add_player() -> Result<()> {
-        let evaluator = Arc::new(Evaluator::new());
-        let mut room = Room::new("test".to_string(), evaluator);
-        room.add_player("Alice".to_string())?;
-        room.add_player("Bob".to_string())?;
+        let mut room = Room::new("test".to_string());
+        room.add_player("Alice".to_string(), 400)?;
+        room.add_player("Bob".to_string(), 400)?;
         assert_eq!(2, room.players.len());
         Ok(())
     }
 
     #[test]
     fn test_deal_community_card() -> Result<()> {
-        let evaluator = Arc::new(Evaluator::new());
-        let mut room = Room::new("test".to_string(), evaluator);
+        let mut room = Room::new("test".to_string());
         for _ in 0..5 {
             room.deal_community_card()?;
         }
@@ -201,6 +200,9 @@ mod tests {
 
     #[test]
     fn test_winners() -> Result<()> {
+        let game_service = GameService {
+            evaluator: Evaluator::new(),
+        };
         let room = Room {
             id: "test".to_string(),
             players: vec![
@@ -225,11 +227,12 @@ mod tests {
             ],
             deck: Deck::new(),
             community_cards: cards!("6s 7s 8s 9s Ts").try_collect()?,
-            evaluator: Arc::new(Evaluator::new()),
             stage: Stage::Showdown,
+            pot: 0,
         };
 
-        let winners = room.winners()?;
+        let winners = game_service.find_winners(&room)?;
+        let winners = room.players_of_ids(winners);
         // Both players have straight flushes
         assert_eq!(
             winners,
@@ -259,10 +262,50 @@ mod tests {
 
     #[test]
     fn test_can_proceed_to_next_stage() {
-        let evaluator = Arc::new(Evaluator::new());
-        let mut room = Room::new("test".to_string(), evaluator);
+        let mut room = Room::new("test".to_string());
         room.add_player("Alice".to_string(), 400).unwrap();
         room.add_player("Bob".to_string(), 400).unwrap();
         assert!(room.can_proceed_to_next_stage());
+    }
+
+    #[test]
+    fn test_readjust_positions_with_4_players() -> Result<()> {
+        let mut room = Room::new("test".to_string());
+        room.add_player("Alice".to_string(), 400)?;
+        room.add_player("Bob".to_string(), 400)?;
+        room.add_player("Charlie".to_string(), 400)?;
+        room.add_player("David".to_string(), 400)?;
+        let positions = room
+            .players
+            .iter()
+            .map(|p| p.position.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            positions,
+            vec![
+                Position::Dealer,
+                Position::SmallBlind,
+                Position::BigBlind,
+                Position::Normal,
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_readjust_positions_with_2_players() -> Result<()> {
+        let mut room = Room::new("test".to_string());
+        room.add_player("Alice".to_string(), 400)?;
+        room.add_player("Bob".to_string(), 400)?;
+        let positions = room
+            .players
+            .iter()
+            .map(|p| p.position.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            positions,
+            vec![Position::DealerAndSmallBlind, Position::BigBlind]
+        );
+        Ok(())
     }
 }
