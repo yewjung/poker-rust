@@ -335,7 +335,9 @@ impl Room {
         if self.can_proceed_to_next_stage() {
             self.proceed_to_next_stage()?;
             self.setup_stage()
-        } else if self.stage != Stage::NotEnoughPlayers {
+        } else if self.stage == Stage::NotEnoughPlayers {
+            Ok(ServiceRequiredAction::NoAction)
+        } else {
             // move turn to the next player
             let current_player_index = self
                 .players
@@ -350,8 +352,6 @@ impl Room {
                 .map(|p| p.id)
                 .wrap_err("Player not found")?;
             self.player_in_turn = Some(next_player_id);
-            Ok(ServiceRequiredAction::NoAction)
-        } else {
             Ok(ServiceRequiredAction::NoAction)
         }
     }

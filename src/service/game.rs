@@ -74,7 +74,6 @@ pub enum ServiceRequiredAction {
 mod tests {
     use super::*;
     use crate::domain::room::{Player, Stage};
-    use crate::error::Error;
 
     #[test]
     fn test_whole_game_flow() -> Result<()> {
