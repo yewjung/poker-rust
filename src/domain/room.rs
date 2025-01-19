@@ -1,34 +1,63 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
-use eyre::{ensure, ContextCompat, Result};
+use eyre::{bail, ensure, ContextCompat, Report, Result};
 use poker::{box_cards, Card, Evaluator};
 use uuid::Uuid;
 
 use crate::domain::deck::Deck;
+use crate::service::game::ServiceRequiredAction;
 
+#[derive(Clone)]
 pub struct Room {
-    pub id: String,
+    pub id: Uuid,
     pub players: Vec<Player>,
     pub deck: Deck,
     pub community_cards: Vec<Card>,
     pub stage: Stage,
     pub pot: u32,
+    pub player_joining_next_round: Vec<Player>,
+    pub player_leaving_next_round: HashMap<Uuid, Player>,
+    pub player_in_turn: Option<Uuid>,
 }
 
 #[derive(Clone)]
 #[cfg_attr(test, derive(Debug, PartialEq))]
 pub struct Player {
-    id: Uuid,
+    pub id: Uuid,
     name: String,
-    hand: Hand,
+    hand: Option<Hand>,
     chips: u32,
     bet: u32,
     has_folded: bool,
     position: Position,
+    has_taken_turn: bool,
 }
 
-#[derive(Debug, PartialEq)]
-enum Stage {
+impl Player {
+    pub fn new(name: String, buy_in: u32) -> Self {
+        Player {
+            id: Uuid::new_v4(),
+            name,
+            hand: None,
+            chips: buy_in,
+            bet: 0,
+            has_folded: false,
+            position: Position::Normal,
+            has_taken_turn: false,
+        }
+    }
+
+    fn bet_amount(&mut self, amount: u32) -> Result<()> {
+        ensure!(amount <= self.chips, "Not enough chips");
+        self.bet += amount;
+        self.chips -= amount;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Stage {
+    NotEnoughPlayers,
     PreFlop,
     Flop,
     Turn,
@@ -46,7 +75,7 @@ enum Position {
     Dealer,
 }
 
-enum Action {
+pub enum Action {
     Fold,
     Check,
     Call(u32),
@@ -58,24 +87,22 @@ enum Action {
 pub struct Hand(pub [Card; 2]);
 
 impl Room {
-    pub fn new(id: String) -> Self {
+    pub fn new() -> Self {
         Room {
-            id,
+            id: Uuid::new_v4(),
             players: Vec::new(),
             deck: Deck::new(),
             community_cards: Vec::with_capacity(5),
-            stage: Stage::PreFlop,
+            stage: Stage::NotEnoughPlayers,
             pot: 0,
+            player_joining_next_round: Vec::new(),
+            player_leaving_next_round: HashMap::new(),
+            player_in_turn: None,
         }
     }
 
-    fn readjust_positions(&mut self, dealer_id: Uuid) -> Result<()> {
+    fn readjust_positions(&mut self, dealer_position: usize) -> Result<()> {
         let total_players = self.players.len();
-        let dealer_position = self
-            .players
-            .iter()
-            .position(|p| p.id == dealer_id)
-            .wrap_err("Dealer not found")?;
         (dealer_position..)
             .take(total_players)
             .enumerate()
@@ -102,24 +129,105 @@ impl Room {
             })
     }
 
-    pub fn add_player(&mut self, name: String, buy_in: u32) -> Result<()> {
-        ensure!(self.players.len() < 10, "Room is full");
-        self.players.push(Player {
-            id: Uuid::new_v4(),
-            name,
-            hand: Hand([self.deck.draw()?, self.deck.draw()?]),
-            chips: buy_in,
-            bet: 0,
-            has_folded: false,
-            position: Position::Normal,
-        });
-        let dealer = self
+    pub fn join_player(&mut self, player: Player) -> Result<()> {
+        match self.stage {
+            Stage::NotEnoughPlayers => {
+                self.players.push(player);
+                self.proceed()?;
+            }
+            _ => self.player_joining_next_round.push(player),
+        };
+        Ok(())
+    }
+
+    pub fn start_game(&mut self) -> Result<()> {
+        self.reset_table();
+        // Reset the bets
+        self.players.iter_mut().try_for_each(|p| {
+            p.bet = 0;
+            p.has_folded = false;
+            p.has_taken_turn = false;
+            p.hand = Some(Hand([self.deck.draw()?, self.deck.draw()?]));
+            Ok::<(), Report>(())
+        })?;
+
+        // find the next dealer
+        let dealer_seat = self
             .players
             .iter()
-            .max_by(|a, b| a.position.cmp(&b.position))
-            .map(|p| p.id)
+            .enumerate()
+            .rev()
+            .max_by(|a, b| a.1.position.cmp(&b.1.position))
+            .map(|(i, _)| i)
             .wrap_err("No players")?;
-        self.readjust_positions(dealer)
+
+        let dealer = self.players.get(dealer_seat).wrap_err("Dealer not found")?;
+        let next_dealer_seat = match dealer.position {
+            Position::Dealer | Position::DealerAndSmallBlind => {
+                (dealer_seat + 1) % self.players.len()
+            }
+            _ => dealer_seat,
+        };
+        self.readjust_positions(next_dealer_seat)?;
+
+        self.apply_binds()?;
+
+        self.player_in_turn = Some(self.player_to_act_first()?);
+        Ok(())
+    }
+
+    fn apply_binds(&mut self) -> Result<()> {
+        self.players.iter_mut().try_for_each(|p| match p.position {
+            Position::BigBlind => p.bet_amount(2),
+            Position::SmallBlind | Position::DealerAndSmallBlind => p.bet_amount(1),
+            _ => Ok(()),
+        })
+    }
+
+    fn reset_table(&mut self) {
+        self.seat_players();
+
+        // Reset the pot
+        self.pot = 0;
+        // Reset the community cards
+        self.community_cards.clear();
+        // Reset the deck
+        self.deck = Deck::new();
+    }
+
+    fn seat_players(&mut self) {
+        // Remove players who left the game
+        self.players
+            .retain(|p| !self.player_leaving_next_round.contains_key(&p.id));
+        self.player_leaving_next_round.clear();
+        // Add players who joined the game
+        self.players.append(&mut self.player_joining_next_round);
+    }
+
+    fn player_to_act_first(&self) -> Result<Uuid> {
+        let index_of_last_player_to_take_turn = match self.stage {
+            Stage::NotEnoughPlayers => unreachable!("Impossible to reach this state"),
+            Stage::PreFlop => self
+                .players
+                .iter()
+                .enumerate()
+                .find(|(_, p)| p.position == Position::BigBlind)
+                .map(|(index, _)| index)
+                .wrap_err("Big blind not found")?,
+            _ => self
+                .players
+                .iter()
+                .enumerate()
+                .find(|(_, p)| {
+                    p.position == Position::Dealer || p.position == Position::DealerAndSmallBlind
+                })
+                .map(|(index, _)| index)
+                .wrap_err("Dealer not found")?,
+        };
+        self.players
+            .get((index_of_last_player_to_take_turn + 1) % self.players.len())
+            .map(|p| p.id)
+            .wrap_err("Player not found")
     }
 
     pub fn deal_community_card(&mut self) -> Result<()> {
@@ -134,14 +242,14 @@ impl Room {
     pub fn players_cards(&self) -> Vec<(Uuid, Box<[Card]>)> {
         self.players
             .iter()
-            .map(|p| (p.id, box_cards!(p.hand.0, self.community_cards)))
-            .collect()
-    }
-
-    pub fn players_of_ids(&self, ids: HashSet<Uuid>) -> Vec<&Player> {
-        self.players
-            .iter()
-            .filter(|p| ids.contains(&p.id))
+            .map(|p| {
+                let cards = p
+                    .hand
+                    .as_ref()
+                    .map(|h| box_cards!(h.0, self.community_cards))
+                    .unwrap_or(box_cards!(self.community_cards, []));
+                (p.id, cards)
+            })
             .collect()
     }
 
@@ -149,48 +257,200 @@ impl Room {
         self.stage == Stage::Showdown && self.community_cards.len() == 5
     }
 
+    pub fn split_pot(&mut self, winners: HashSet<Uuid>) {
+        let total_pot = self.pot;
+        let total_winners = winners.len();
+        let earnings = total_pot / total_winners as u32;
+        self.players.iter_mut().for_each(|p| {
+            if winners.contains(&p.id) {
+                p.chips += earnings;
+            }
+        });
+    }
+
     /// Check if all non-folded players have the same bet
     fn can_proceed_to_next_stage(&self) -> bool {
-        let all_non_folded_bets = self
+        match self.stage {
+            Stage::NotEnoughPlayers => self.players.len() >= 2,
+            Stage::Showdown => true,
+            _ => {
+                let all_players_taken_turn = self
+                    .players
+                    .iter()
+                    .all(|p| p.has_taken_turn || p.has_folded);
+                let all_non_folded_bets = self
+                    .players
+                    .iter()
+                    .filter(|p| !p.has_folded)
+                    .map(|p| p.bet)
+                    .collect::<Vec<_>>();
+                all_players_taken_turn && all_non_folded_bets.windows(2).all(|w| w[0] == w[1])
+            }
+        }
+    }
+
+    pub fn take_action(
+        &mut self,
+        player_id: Uuid,
+        action: Action,
+    ) -> Result<ServiceRequiredAction> {
+        ensure!(self.player_in_turn == Some(player_id), "Not player's turn");
+        let max_bet = self
             .players
             .iter()
             .filter(|p| !p.has_folded)
             .map(|p| p.bet)
-            .collect::<Vec<_>>();
-        all_non_folded_bets.windows(2).all(|w| w[0] == w[1])
+            .max()
+            .unwrap_or_default();
+        let player = self
+            .players
+            .iter_mut()
+            .find(|p| p.id == player_id)
+            .wrap_err("Player not found")?;
+        match action {
+            Action::Fold => player.has_folded = true,
+            Action::Check => {
+                if player.bet < max_bet {
+                    bail!("Player must call or raise");
+                }
+            }
+            Action::Call(amount) => {
+                let call_amount = max_bet - player.bet;
+                ensure!(amount == call_amount, "Invalid call amount");
+                player.bet += amount;
+                player.chips -= amount;
+            }
+            Action::Raise(amount) => {
+                let raise_amount = max_bet - player.bet + amount;
+                ensure!(raise_amount >= max_bet, "Invalid raise amount");
+                player.bet += raise_amount;
+                player.chips -= raise_amount;
+            }
+        };
+        player.has_taken_turn = true;
+        self.proceed()
+    }
+
+    pub fn proceed(&mut self) -> Result<ServiceRequiredAction> {
+        if self.can_proceed_to_next_stage() {
+            self.proceed_to_next_stage()?;
+            self.setup_stage()
+        } else if self.stage != Stage::NotEnoughPlayers {
+            // move turn to the next player
+            let current_player_index = self
+                .players
+                .iter()
+                .enumerate()
+                .find(|(_, p)| Some(p.id) == self.player_in_turn)
+                .map(|(index, _)| index)
+                .wrap_err("Player not found")?;
+            let next_player_id = self
+                .players
+                .get((current_player_index + 1) % self.players.len())
+                .map(|p| p.id)
+                .wrap_err("Player not found")?;
+            self.player_in_turn = Some(next_player_id);
+            Ok(ServiceRequiredAction::NoAction)
+        } else {
+            Ok(ServiceRequiredAction::NoAction)
+        }
+    }
+
+    fn setup_stage(&mut self) -> Result<ServiceRequiredAction> {
+        match self.stage {
+            Stage::NotEnoughPlayers => {}
+            Stage::PreFlop => {
+                self.start_game()?;
+            }
+            Stage::Flop => {
+                self.deal_community_card()?;
+                self.deal_community_card()?;
+                self.deal_community_card()?;
+            }
+            Stage::Turn => {
+                self.deal_community_card()?;
+            }
+            Stage::River => {
+                self.deal_community_card()?;
+            }
+            Stage::Showdown => {
+                return Ok(ServiceRequiredAction::FindWinners);
+            }
+        }
+        Ok(ServiceRequiredAction::NoAction)
+    }
+
+    fn end_stage(&mut self) -> Result<()> {
+        match self.stage {
+            Stage::NotEnoughPlayers | Stage::Showdown => {}
+            Stage::PreFlop | Stage::Flop | Stage::Turn | Stage::River => {
+                self.pot += self.players.iter().map(|p| p.bet).sum::<u32>();
+                self.players.iter_mut().for_each(|p| {
+                    p.has_taken_turn = false;
+                    p.bet = 0;
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn proceed_to_next_stage(&mut self) -> Result<()> {
+        self.end_stage()?;
+        match self.stage {
+            Stage::Showdown => {
+                self.seat_players();
+                if self.players.len() >= 2 {
+                    self.stage = Stage::PreFlop
+                } else {
+                    self.stage = Stage::NotEnoughPlayers
+                }
+            }
+            Stage::NotEnoughPlayers => {
+                if self.players.len() >= 2 {
+                    self.stage = Stage::PreFlop
+                } else {
+                    unreachable!("Impossible to reach this state")
+                }
+            }
+            Stage::PreFlop => self.stage = Stage::Flop,
+            Stage::Flop => self.stage = Stage::Turn,
+            Stage::Turn => self.stage = Stage::River,
+            Stage::River => self.stage = Stage::Showdown,
+        }
+        println!("Stage: {:?}", self.stage);
+        Ok(())
     }
 }
 
-impl Stage {
-    fn next(&self) -> Self {
-        match self {
-            Stage::PreFlop => Stage::Flop,
-            Stage::Flop => Stage::Turn,
-            Stage::Turn => Stage::River,
-            Stage::River => Stage::Showdown,
-            Stage::Showdown => Stage::PreFlop,
-        }
+#[cfg(test)]
+impl Room {
+    pub fn players_of_ids(&self, ids: HashSet<Uuid>) -> Vec<&Player> {
+        self.players
+            .iter()
+            .filter(|p| ids.contains(&p.id))
+            .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repository::rooms::RoomRepository;
     use crate::service::game::GameService;
     use poker::{card, cards};
 
     #[test]
     fn test_add_player() -> Result<()> {
-        let mut room = Room::new("test".to_string());
-        room.add_player("Alice".to_string(), 400)?;
-        room.add_player("Bob".to_string(), 400)?;
+        let mut room = Room::new();
+        room.join_player(Player::new("Alice".to_string(), 400))?;
+        room.join_player(Player::new("Bob".to_string(), 400))?;
         assert_eq!(2, room.players.len());
         Ok(())
     }
 
     #[test]
     fn test_deal_community_card() -> Result<()> {
-        let mut room = Room::new("test".to_string());
+        let mut room = Room::new();
         for _ in 0..5 {
             room.deal_community_card()?;
         }
@@ -202,33 +462,39 @@ mod tests {
     fn test_winners() -> Result<()> {
         let game_service = GameService {
             evaluator: Evaluator::new(),
+            room_repository: RoomRepository::new(),
         };
         let room = Room {
-            id: "test".to_string(),
+            id: Uuid::new_v4(),
             players: vec![
                 Player {
                     id: Uuid::from_u128(1),
                     name: "Alice".to_string(),
-                    hand: Hand([card!("3s")?, card!("2s")?]),
+                    hand: Some(Hand([card!("3s")?, card!("2s")?])),
                     chips: 0,
                     bet: 0,
                     has_folded: false,
                     position: Position::DealerAndSmallBlind,
+                    has_taken_turn: true,
                 },
                 Player {
                     id: Uuid::from_u128(2),
                     name: "Bob".to_string(),
-                    hand: Hand([card!("4s")?, card!("5s")?]),
+                    hand: Some(Hand([card!("4s")?, card!("5s")?])),
                     chips: 0,
                     bet: 0,
                     has_folded: false,
                     position: Position::BigBlind,
+                    has_taken_turn: true,
                 },
             ],
             deck: Deck::new(),
             community_cards: cards!("6s 7s 8s 9s Ts").try_collect()?,
             stage: Stage::Showdown,
             pot: 0,
+            player_joining_next_round: Default::default(),
+            player_leaving_next_round: Default::default(),
+            player_in_turn: None,
         };
 
         let winners = game_service.find_winners(&room)?;
@@ -240,20 +506,22 @@ mod tests {
                 &Player {
                     id: Uuid::from_u128(1),
                     name: "Alice".to_string(),
-                    hand: Hand([card!("3s")?, card!("2s")?]),
+                    hand: Some(Hand([card!("3s")?, card!("2s")?])),
                     chips: 0,
                     bet: 0,
                     has_folded: false,
                     position: Position::DealerAndSmallBlind,
+                    has_taken_turn: true,
                 },
                 &Player {
                     id: Uuid::from_u128(2),
                     name: "Bob".to_string(),
-                    hand: Hand([card!("4s")?, card!("5s")?]),
+                    hand: Some(Hand([card!("4s")?, card!("5s")?])),
                     chips: 0,
                     bet: 0,
                     has_folded: false,
                     position: Position::BigBlind,
+                    has_taken_turn: true,
                 },
             ]
         );
@@ -261,20 +529,22 @@ mod tests {
     }
 
     #[test]
-    fn test_can_proceed_to_next_stage() {
-        let mut room = Room::new("test".to_string());
-        room.add_player("Alice".to_string(), 400).unwrap();
-        room.add_player("Bob".to_string(), 400).unwrap();
-        assert!(room.can_proceed_to_next_stage());
+    fn stage_should_change_to_pre_flop_when_there_is_minimum_players() -> Result<()> {
+        let mut room = Room::new();
+        room.join_player(Player::new("Alice".to_string(), 400))?;
+        room.join_player(Player::new("Bob".to_string(), 400))?;
+        assert_eq!(room.stage, Stage::PreFlop);
+        Ok(())
     }
 
     #[test]
     fn test_readjust_positions_with_4_players() -> Result<()> {
-        let mut room = Room::new("test".to_string());
-        room.add_player("Alice".to_string(), 400)?;
-        room.add_player("Bob".to_string(), 400)?;
-        room.add_player("Charlie".to_string(), 400)?;
-        room.add_player("David".to_string(), 400)?;
+        let mut room = Room::new();
+        room.join_player(Player::new("Alice".to_string(), 400))?;
+        room.join_player(Player::new("Bob".to_string(), 400))?;
+        room.join_player(Player::new("Charlie".to_string(), 400))?;
+        room.join_player(Player::new("David".to_string(), 400))?;
+
         let positions = room
             .players
             .iter()
@@ -282,21 +552,16 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(
             positions,
-            vec![
-                Position::Dealer,
-                Position::SmallBlind,
-                Position::BigBlind,
-                Position::Normal,
-            ]
+            vec![Position::DealerAndSmallBlind, Position::BigBlind]
         );
         Ok(())
     }
 
     #[test]
     fn test_readjust_positions_with_2_players() -> Result<()> {
-        let mut room = Room::new("test".to_string());
-        room.add_player("Alice".to_string(), 400)?;
-        room.add_player("Bob".to_string(), 400)?;
+        let mut room = Room::new();
+        room.join_player(Player::new("Alice".to_string(), 400))?;
+        room.join_player(Player::new("Bob".to_string(), 400))?;
         let positions = room
             .players
             .iter()

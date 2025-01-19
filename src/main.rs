@@ -3,23 +3,31 @@ use std::sync::Arc;
 use eyre::Result;
 use poker::Evaluator;
 
-use crate::domain::room::Room;
+use crate::domain::room::{Player, Room};
+use crate::repository::rooms::RoomRepository;
 use crate::service::game::GameService;
 
 mod domain;
 mod error;
+mod repository;
 mod service;
 
 fn main() -> Result<()> {
     // evaluator
     let evaluator = Evaluator::new();
 
-    // service
-    let game_service = GameService { evaluator };
+    // repository
+    let room_repository = RoomRepository::new();
 
-    let mut room = Room::new("room1".to_string());
-    room.add_player("Alice".to_string(), 500)?;
-    room.add_player("Bob".to_string(), 500)?;
+    // service
+    let game_service = GameService {
+        evaluator,
+        room_repository,
+    };
+
+    let mut room = Room::new();
+    room.join_player(Player::new("Alice".to_string(), 500))?;
+    room.join_player(Player::new("Bob".to_string(), 500))?;
 
     for _ in 0..5 {
         room.deal_community_card()?;

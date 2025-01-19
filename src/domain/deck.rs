@@ -4,7 +4,7 @@ use rand::Rng;
 
 use crate::error::Error::{EmptyDeck, InvalidPosition};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Deck(u64);
 
 const FULL_DECK_INT: u64 = 0x000f_ffff_ffff_ffff;
