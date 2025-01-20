@@ -17,15 +17,18 @@ impl RoomRepository {
     pub fn insert(&mut self, room: Room) -> Result<Room> {
         let id = room.id.clone();
         self.rooms.insert(room.id, room);
-        self.get(id).map(|r| r.clone()).wrap_err("Room not found")
+        self.get(id)
     }
 
-    pub fn update(&mut self, id: Uuid, room: Room) -> Result<()> {
-        self.rooms.insert(id, room);
-        Ok(())
+    pub fn update(&mut self, id: Uuid, room: Room) -> Result<Room> {
+        self.rooms.insert(id, room.clone());
+        Ok(room)
     }
 
-    pub fn get(&self, id: Uuid) -> Option<&Room> {
-        self.rooms.get(&id)
+    pub fn get(&self, id: Uuid) -> Result<Room> {
+        self.rooms
+            .get(&id)
+            .map(|r| r.clone())
+            .wrap_err("Room not found")
     }
 }

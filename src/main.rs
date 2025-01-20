@@ -1,10 +1,9 @@
-use std::sync::Arc;
-
 use eyre::Result;
 use poker::Evaluator;
 
 use crate::domain::room::{Player, Room};
 use crate::repository::rooms::RoomRepository;
+use crate::repository::users::UserRepository;
 use crate::service::game::GameService;
 
 mod domain;
@@ -18,11 +17,13 @@ fn main() -> Result<()> {
 
     // repository
     let room_repository = RoomRepository::new();
+    let user_repository = UserRepository::new();
 
     // service
     let game_service = GameService {
         evaluator,
         room_repository,
+        user_repository,
     };
 
     let mut room = Room::new();

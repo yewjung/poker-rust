@@ -1,13 +1,14 @@
 use std::collections::{HashMap, HashSet};
 
 use eyre::{bail, ensure, ContextCompat, Report, Result};
-use poker::{box_cards, Card, Evaluator};
+use poker::{box_cards, Card};
 use uuid::Uuid;
 
 use crate::domain::deck::Deck;
+use crate::domain::user::User;
 use crate::service::game::ServiceRequiredAction;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct Room {
     pub id: Uuid,
     pub players: Vec<Player>,
@@ -20,17 +21,17 @@ pub struct Room {
     pub player_in_turn: Option<Uuid>,
 }
 
-#[derive(Clone)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Player {
     pub id: Uuid,
-    name: String,
-    hand: Option<Hand>,
-    chips: u32,
-    bet: u32,
-    has_folded: bool,
-    position: Position,
-    has_taken_turn: bool,
+    pub name: String,
+    pub hand: Option<Hand>,
+    pub chips: u32,
+    pub bet: u32,
+    pub has_folded: bool,
+    pub position: Position,
+    pub has_taken_turn: bool,
 }
 
 impl Player {
@@ -53,6 +54,19 @@ impl Player {
         self.chips -= amount;
         Ok(())
     }
+
+    pub fn from_user(user: &User, buy_in: u32) -> Self {
+        Player {
+            id: user.id,
+            name: user.name.clone(),
+            hand: None,
+            chips: buy_in,
+            bet: 0,
+            has_folded: false,
+            position: Position::Normal,
+            has_taken_turn: false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -65,9 +79,8 @@ pub enum Stage {
     Showdown,
 }
 
-#[derive(Eq, Hash, PartialEq, Clone, Ord, PartialOrd)]
-#[cfg_attr(test, derive(Debug))]
-enum Position {
+#[derive(Debug, Eq, Hash, PartialEq, Clone, Ord, PartialOrd)]
+pub enum Position {
     Normal,
     BigBlind,
     SmallBlind,
@@ -82,8 +95,8 @@ pub enum Action {
     Raise(u32),
 }
 
-#[derive(Clone)]
-#[cfg_attr(test, derive(Debug, PartialEq))]
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
 pub struct Hand(pub [Card; 2]);
 
 impl Room {
@@ -346,11 +359,22 @@ impl Room {
                 .find(|(_, p)| Some(p.id) == self.player_in_turn)
                 .map(|(index, _)| index)
                 .wrap_err("Player not found")?;
+
+            let next_index = (current_player_index + 1) % self.players.len();
+            let end_index = next_index + self.players.len();
+            let next_player_index = (next_index..end_index)
+                .map(|index| index % self.players.len())
+                .find(|index| {
+                    let p = self.players.get(*index).unwrap();
+                    !p.has_folded
+                })
+                .wrap_err("No players to act")?;
             let next_player_id = self
                 .players
-                .get((current_player_index + 1) % self.players.len())
+                .get(next_player_index)
                 .map(|p| p.id)
                 .wrap_err("Player not found")?;
+
             self.player_in_turn = Some(next_player_id);
             Ok(ServiceRequiredAction::NoAction)
         }
@@ -366,14 +390,18 @@ impl Room {
                 self.deal_community_card()?;
                 self.deal_community_card()?;
                 self.deal_community_card()?;
+                self.player_in_turn = Some(self.player_to_act_first()?);
             }
             Stage::Turn => {
                 self.deal_community_card()?;
+                self.player_in_turn = Some(self.player_to_act_first()?);
             }
             Stage::River => {
                 self.deal_community_card()?;
+                self.player_in_turn = Some(self.player_to_act_first()?);
             }
             Stage::Showdown => {
+                self.player_in_turn = None;
                 return Ok(ServiceRequiredAction::FindWinners);
             }
         }
@@ -417,7 +445,6 @@ impl Room {
             Stage::Turn => self.stage = Stage::River,
             Stage::River => self.stage = Stage::Showdown,
         }
-        println!("Stage: {:?}", self.stage);
         Ok(())
     }
 }
@@ -436,8 +463,9 @@ impl Room {
 mod tests {
     use super::*;
     use crate::repository::rooms::RoomRepository;
+    use crate::repository::users::UserRepository;
     use crate::service::game::GameService;
-    use poker::{card, cards};
+    use poker::{card, cards, Evaluator};
 
     #[test]
     fn test_add_player() -> Result<()> {
@@ -463,6 +491,7 @@ mod tests {
         let game_service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
+            user_repository: UserRepository::new(),
         };
         let room = Room {
             id: Uuid::new_v4(),
