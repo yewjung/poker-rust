@@ -86,6 +86,7 @@ pub enum ServiceRequiredAction {
 
 #[cfg(test)]
 mod tests {
+    use eyre::ContextCompat;
     use super::*;
     use crate::domain::room::{Position, Stage};
 
@@ -241,6 +242,25 @@ mod tests {
 
         // game restarts to preFlop
         assert_eq!(room.stage, Stage::PreFlop);
+        let new_dealer = room.players
+            .iter()
+            .find(|p| p.position == Position::DealerAndSmallBlind)
+            .wrap_err("Dealer and small blind not found")?;
+        let new_big_blind = room.players
+            .iter()
+            .find(|p| p.position == Position::BigBlind)
+            .wrap_err("Big blind not found")?;
+        assert_eq!(new_dealer.name, "Bob".to_string());
+        assert_eq!(new_big_blind.name, "Alice".to_string());
+        assert_eq!(new_dealer.bet, 1);
+        assert_eq!(new_big_blind.bet, 2);
+        assert_eq!(room.community_cards.len(), 0);
+        assert!(!new_dealer.has_taken_turn);
+        assert!(!new_big_blind.has_taken_turn);
+        assert_eq!(room.player_in_turn, Some(new_dealer.id));
+        assert_eq!(room.pot, 0);
         Ok(())
     }
+
+    // TODO: test FOLD, RAISE, CALL, ALL_IN
 }
