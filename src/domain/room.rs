@@ -91,7 +91,7 @@ pub enum Position {
 pub enum Action {
     Fold,
     Check,
-    Call(u32),
+    Call,
     Raise(u32),
 }
 
@@ -255,6 +255,7 @@ impl Room {
     pub fn players_cards(&self) -> Vec<(Uuid, Box<[Card]>)> {
         self.players
             .iter()
+            .filter(|p| !p.has_folded)
             .map(|p| {
                 let cards = p
                     .hand
@@ -274,6 +275,7 @@ impl Room {
         let total_pot = self.pot;
         let total_winners = winners.len();
         let earnings = total_pot / total_winners as u32;
+        println!("Total pot: {}", total_pot);
         self.players.iter_mut().for_each(|p| {
             if winners.contains(&p.id) {
                 p.chips += earnings;
@@ -287,6 +289,11 @@ impl Room {
             Stage::NotEnoughPlayers => self.players.len() >= 2,
             Stage::Showdown => true,
             _ => {
+                let number_of_non_folder_players =
+                    self.players.iter().filter(|p| !p.has_folded).count();
+                if number_of_non_folder_players == 1 {
+                    return true;
+                }
                 let all_players_taken_turn = self
                     .players
                     .iter()
@@ -327,17 +334,13 @@ impl Room {
                     bail!("Player must call or raise");
                 }
             }
-            Action::Call(amount) => {
+            Action::Call => {
                 let call_amount = max_bet - player.bet;
-                ensure!(amount == call_amount, "Invalid call amount");
-                player.bet += amount;
-                player.chips -= amount;
+                player.bet_amount(call_amount)?;
             }
             Action::Raise(amount) => {
-                let raise_amount = max_bet - player.bet + amount;
-                ensure!(raise_amount >= max_bet, "Invalid raise amount");
-                player.bet += raise_amount;
-                player.chips -= raise_amount;
+                ensure!(amount >= max_bet, "Invalid raise amount");
+                player.bet_amount(amount)?;
             }
         };
         player.has_taken_turn = true;
@@ -364,10 +367,7 @@ impl Room {
             let end_index = next_index + self.players.len();
             let next_player_index = (next_index..end_index)
                 .map(|index| index % self.players.len())
-                .find(|index| {
-                    let p = self.players.get(*index).unwrap();
-                    !p.has_folded
-                })
+                .find(|index| self.players.get(*index).is_some_and(|p| !p.has_folded))
                 .wrap_err("No players to act")?;
             let next_player_id = self
                 .players
@@ -401,6 +401,9 @@ impl Room {
                 self.player_in_turn = Some(self.player_to_act_first()?);
             }
             Stage::Showdown => {
+                while self.community_cards.len() < 5 {
+                    self.deal_community_card()?;
+                }
                 self.player_in_turn = None;
                 return Ok(ServiceRequiredAction::FindWinners);
             }
@@ -424,6 +427,12 @@ impl Room {
 
     fn proceed_to_next_stage(&mut self) -> Result<()> {
         self.end_stage()?;
+        if self.players.iter().filter(|p| !p.has_folded).count() == 1
+            && self.stage != Stage::Showdown
+        {
+            self.stage = Stage::Showdown;
+            return Ok(());
+        }
         match self.stage {
             Stage::Showdown => {
                 self.seat_players();

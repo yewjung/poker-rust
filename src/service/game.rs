@@ -54,6 +54,7 @@ impl GameService {
             ServiceRequiredAction::NoAction => {}
             ServiceRequiredAction::FindWinners => {
                 let winners = self.find_winners(&room)?;
+                println!("Winners: {:?}", winners);
                 room.split_pot(winners);
                 room.proceed()?;
             }
@@ -86,9 +87,9 @@ pub enum ServiceRequiredAction {
 
 #[cfg(test)]
 mod tests {
-    use eyre::ContextCompat;
     use super::*;
     use crate::domain::room::{Position, Stage};
+    use eyre::ContextCompat;
 
     #[test]
     fn test_whole_game_flow() -> Result<()> {
@@ -155,14 +156,9 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert_eq!(error_message, "Player must call or raise".to_string());
-        let error_message = service
-            .take_action(room.id, alice.id, Action::Call(2))
-            .unwrap_err()
-            .to_string();
-        assert_eq!(error_message, "Invalid call amount".to_string());
 
         // alice takes valid action
-        let room = service.take_action(room.id, alice.id, Action::Call(1))?;
+        let room = service.take_action(room.id, alice.id, Action::Call)?;
         assert_eq!(room.player_in_turn, Some(bob.id));
         // bob checks
         let room = service.take_action(room.id, bob.id, Action::Check)?;
@@ -242,11 +238,13 @@ mod tests {
 
         // game restarts to preFlop
         assert_eq!(room.stage, Stage::PreFlop);
-        let new_dealer = room.players
+        let new_dealer = room
+            .players
             .iter()
             .find(|p| p.position == Position::DealerAndSmallBlind)
             .wrap_err("Dealer and small blind not found")?;
-        let new_big_blind = room.players
+        let new_big_blind = room
+            .players
             .iter()
             .find(|p| p.position == Position::BigBlind)
             .wrap_err("Big blind not found")?;
@@ -262,5 +260,47 @@ mod tests {
         Ok(())
     }
 
-    // TODO: test FOLD, RAISE, CALL, ALL_IN
+    #[test]
+    fn test_fold_and_raise() -> Result<()> {
+        // setup
+        let mut service = GameService {
+            evaluator: Evaluator::new(),
+            room_repository: RoomRepository::new(),
+            user_repository: UserRepository::new(),
+        };
+        let alice = service.create_user("Alice".to_string(), 1000)?;
+        let bob = service.create_user("Bob".to_string(), 1000)?;
+
+        // create room
+        let room = service.create_room()?;
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+
+        // join players
+        let room = service.join_player(room.id, alice.id, 500)?;
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+        let room = service.join_player(room.id, bob.id, 500)?;
+        assert_eq!(room.stage, Stage::PreFlop);
+
+        // alice takes action
+        let room = service.take_action(room.id, alice.id, Action::Raise(10))?;
+        let room = service.take_action(room.id, bob.id, Action::Raise(20))?;
+        let room = service.take_action(room.id, alice.id, Action::Fold)?;
+        assert_eq!(room.stage, Stage::PreFlop);
+        let bob = room
+            .players
+            .iter()
+            .find(|p| p.id == bob.id)
+            .wrap_err("Bob not found")?;
+        let alice = room
+            .players
+            .iter()
+            .find(|p| p.id == alice.id)
+            .wrap_err("Alice not found")?;
+        assert_eq!(bob.chips + bob.bet, 511);
+        assert_eq!(alice.chips + alice.bet, 489);
+
+        Ok(())
+    }
+
+    // TODO: implement All-in + split pots
 }
