@@ -88,7 +88,7 @@ pub enum ServiceRequiredAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::room::{Position, Stage};
+    use crate::domain::room::{Position, Pot, Stage};
     use eyre::ContextCompat;
 
     #[test]
@@ -277,7 +277,7 @@ mod tests {
         assert!(!new_dealer.has_taken_turn);
         assert!(!new_big_blind.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(new_dealer.id));
-        assert_eq!(room.pots, vec![0]);
+        assert_eq!(room.pots, vec![Pot::default()]);
         Ok(())
     }
 
