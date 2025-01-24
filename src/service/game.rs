@@ -277,7 +277,13 @@ mod tests {
         assert!(!new_dealer.has_taken_turn);
         assert!(!new_big_blind.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(new_dealer.id));
-        assert_eq!(room.pots, vec![Pot::default()]);
+        assert_eq!(
+            room.pots,
+            vec![Pot {
+                amount: 0,
+                players: HashSet::from([new_dealer.id, new_big_blind.id]),
+            }]
+        );
         Ok(())
     }
 

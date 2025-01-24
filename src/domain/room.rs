@@ -208,7 +208,11 @@ impl Room {
         self.seat_players();
 
         // Reset the pot
-        self.pots = vec![Pot::default()];
+        let pot = Pot {
+            amount: 0,
+            players: self.players.iter().map(|p| p.id).collect(),
+        };
+        self.pots = vec![pot];
         // Reset the community cards
         self.community_cards.clear();
         // Reset the deck
@@ -538,7 +542,10 @@ mod tests {
             deck: Deck::new(),
             community_cards: cards!("6s 7s 8s 9s Ts").try_collect()?,
             stage: Stage::Showdown,
-            pots: vec![Pot::default()],
+            pots: vec![Pot {
+                amount: 0,
+                players: HashSet::from([Uuid::from_u128(1), Uuid::from_u128(2)]),
+            }],
             player_joining_next_round: Default::default(),
             player_leaving_next_round: Default::default(),
             player_in_turn: None,
