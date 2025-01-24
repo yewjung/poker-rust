@@ -287,7 +287,7 @@ impl Room {
     fn can_proceed_to_next_stage(&self) -> bool {
         match self.stage {
             Stage::NotEnoughPlayers => self.players.len() >= 2,
-            Stage::Showdown => true,
+            Stage::Showdown => self.pots.is_empty(),
             _ => {
                 let number_of_non_folder_players =
                     self.players.iter().filter(|p| !p.has_folded).count();
