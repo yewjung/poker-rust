@@ -193,7 +193,25 @@ mod tests {
         assert!(bob.has_taken_turn);
         assert!(!alice.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(alice.id));
-        let room = service.take_action(room.id, alice.id, Action::Check)?;
+        let room = service.take_action(room.id, alice.id, Action::Raise(10))?;
+        let alice = room
+            .players
+            .iter()
+            .find(|p| p.id == alice.id)
+            .expect("Alice not found");
+        let bob = room
+            .players
+            .iter()
+            .find(|p| p.id == bob.id)
+            .expect("Bob not found");
+        assert_eq!(room.stage, Stage::Flop);
+        assert_eq!(room.player_in_turn, Some(bob.id));
+        // bob takes invalid action by raising insufficient amount
+        let error_message = service.take_action(room.id, bob.id, Action::Raise(1)).unwrap_err().to_string();
+        assert_eq!(error_message, "Invalid raise amount".to_string());
+
+        // bob calls
+        let room = service.take_action(room.id, bob.id, Action::Call)?;
 
         // turn
         assert_eq!(room.stage, Stage::Turn);
