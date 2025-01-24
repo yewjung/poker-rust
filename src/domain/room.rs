@@ -339,7 +339,7 @@ impl Room {
                 player.bet_amount(call_amount)?;
             }
             Action::Raise(amount) => {
-                ensure!(amount >= max_bet, "Invalid raise amount");
+                ensure!(amount + player.bet >= max_bet, "Invalid raise amount");
                 player.bet_amount(amount)?;
             }
         };
