@@ -55,7 +55,7 @@ impl GameService {
             ServiceRequiredAction::FindWinners => {
                 let winners = self.find_winners(&room)?;
                 println!("Winners: {:?}", winners);
-                room.split_pot(winners);
+                room.split_pot(winners)?;
                 room.proceed()?;
             }
         }
@@ -207,7 +207,10 @@ mod tests {
         assert_eq!(room.stage, Stage::Flop);
         assert_eq!(room.player_in_turn, Some(bob.id));
         // bob takes invalid action by raising insufficient amount
-        let error_message = service.take_action(room.id, bob.id, Action::Raise(1)).unwrap_err().to_string();
+        let error_message = service
+            .take_action(room.id, bob.id, Action::Raise(1))
+            .unwrap_err()
+            .to_string();
         assert_eq!(error_message, "Invalid raise amount".to_string());
 
         // bob calls
@@ -274,7 +277,7 @@ mod tests {
         assert!(!new_dealer.has_taken_turn);
         assert!(!new_big_blind.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(new_dealer.id));
-        assert_eq!(room.pot, 0);
+        assert_eq!(room.pots, vec![0]);
         Ok(())
     }
 

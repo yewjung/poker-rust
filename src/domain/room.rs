@@ -15,7 +15,7 @@ pub struct Room {
     pub deck: Deck,
     pub community_cards: Vec<Card>,
     pub stage: Stage,
-    pub pot: u32,
+    pub pots: Vec<u32>,
     pub player_joining_next_round: Vec<Player>,
     pub player_leaving_next_round: HashMap<Uuid, Player>,
     pub player_in_turn: Option<Uuid>,
@@ -107,7 +107,7 @@ impl Room {
             deck: Deck::new(),
             community_cards: Vec::with_capacity(5),
             stage: Stage::NotEnoughPlayers,
-            pot: 0,
+            pots: vec![0],
             player_joining_next_round: Vec::new(),
             player_leaving_next_round: HashMap::new(),
             player_in_turn: None,
@@ -201,7 +201,7 @@ impl Room {
         self.seat_players();
 
         // Reset the pot
-        self.pot = 0;
+        self.pots = vec![0];
         // Reset the community cards
         self.community_cards.clear();
         // Reset the deck
@@ -271,16 +271,16 @@ impl Room {
         self.stage == Stage::Showdown && self.community_cards.len() == 5
     }
 
-    pub fn split_pot(&mut self, winners: HashSet<Uuid>) {
-        let total_pot = self.pot;
+    pub fn split_pot(&mut self, winners: HashSet<Uuid>) -> Result<()> {
+        let total_pot = self.pots.pop().wrap_err("No pots")?;
         let total_winners = winners.len();
         let earnings = total_pot / total_winners as u32;
-        println!("Total pot: {}", total_pot);
         self.players.iter_mut().for_each(|p| {
             if winners.contains(&p.id) {
                 p.chips += earnings;
             }
         });
+        Ok(())
     }
 
     /// Check if all non-folded players have the same bet
@@ -415,7 +415,9 @@ impl Room {
         match self.stage {
             Stage::NotEnoughPlayers | Stage::Showdown => {}
             Stage::PreFlop | Stage::Flop | Stage::Turn | Stage::River => {
-                self.pot += self.players.iter().map(|p| p.bet).sum::<u32>();
+                if let Some(p) = self.pots.last_mut() {
+                    *p += self.players.iter().map(|p| p.bet).sum::<u32>();
+                }
                 self.players.iter_mut().for_each(|p| {
                     p.has_taken_turn = false;
                     p.bet = 0;
@@ -529,7 +531,7 @@ mod tests {
             deck: Deck::new(),
             community_cards: cards!("6s 7s 8s 9s Ts").try_collect()?,
             stage: Stage::Showdown,
-            pot: 0,
+            pots: vec![0],
             player_joining_next_round: Default::default(),
             player_leaving_next_round: Default::default(),
             player_in_turn: None,
