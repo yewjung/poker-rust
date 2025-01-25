@@ -271,12 +271,20 @@ impl Room {
             .wrap_err("Player not found")
     }
 
-    pub fn deal_community_card(&mut self) -> Result<()> {
-        // burn one card
-        self.deck.draw()?;
-
-        let card = self.deck.draw()?;
-        self.community_cards.push(card);
+    fn deal_community_card(&mut self, stage: Stage) -> Result<()> {
+        match stage {
+            Stage::Flop => {
+                self.deck.draw()?;
+                self.community_cards.push(self.deck.draw()?);
+                self.community_cards.push(self.deck.draw()?);
+                self.community_cards.push(self.deck.draw()?);
+            }
+            Stage::Turn | Stage::River => {
+                self.deck.draw()?;
+                self.community_cards.push(self.deck.draw()?);
+            }
+            _ => bail!("Invalid stage to deal community card"),
+        }
         Ok(())
     }
 
@@ -299,15 +307,49 @@ impl Room {
         self.stage == Stage::Showdown && self.community_cards.len() == 5
     }
 
-    pub fn split_pot(&mut self, winners: Vec<(u32, HashSet<Uuid>)>) {
+    pub fn split_pot(&mut self, winners: Vec<(u32, HashSet<Uuid>)>) -> Result<()> {
         for (amount, winner_ids) in winners {
             let earnings = amount / winner_ids.len() as u32;
+
             self.players.iter_mut().for_each(|p| {
                 if winner_ids.contains(&p.id) {
                     p.chips += earnings;
                 }
             });
+            let remainder = amount % winner_ids.len() as u32;
+            let remainder_winner = self.closest_to_dealer(&winner_ids)?;
+            let remainder_winner = self
+                .players
+                .iter_mut()
+                .find(|p| p.id == remainder_winner)
+                .wrap_err("Remainder winner not found")?;
+            remainder_winner.chips += remainder;
         }
+        Ok(())
+    }
+
+    fn closest_to_dealer(&self, player_ids: &HashSet<Uuid>) -> Result<Uuid> {
+        let dealer_index = self
+            .players
+            .iter()
+            .position(|p| {
+                p.position == Position::Dealer || p.position == Position::DealerAndSmallBlind
+            })
+            .wrap_err("Dealer not found")?;
+        let next_to_dealer = (dealer_index + 1) % self.players.len();
+
+        let end_index = next_to_dealer + self.players.len();
+        (next_to_dealer..end_index)
+            .map(|index| index % self.players.len())
+            .find_map(|index| {
+                let p_id = self.players[index].id;
+                if player_ids.contains(&p_id) {
+                    Some(p_id)
+                } else {
+                    None
+                }
+            })
+            .wrap_err("No players found")
     }
 
     /// Check if all non-folded players have the same bet
@@ -406,22 +448,33 @@ impl Room {
                 self.start_game()?;
             }
             Stage::Flop => {
-                self.deal_community_card()?;
-                self.deal_community_card()?;
-                self.deal_community_card()?;
+                self.deal_community_card(Stage::Flop)?;
                 self.player_in_turn = Some(self.player_to_act_first()?);
             }
             Stage::Turn => {
-                self.deal_community_card()?;
+                self.deal_community_card(Stage::Turn)?;
                 self.player_in_turn = Some(self.player_to_act_first()?);
             }
             Stage::River => {
-                self.deal_community_card()?;
+                self.deal_community_card(Stage::River)?;
                 self.player_in_turn = Some(self.player_to_act_first()?);
             }
             Stage::Showdown => {
-                while self.community_cards.len() < 5 {
-                    self.deal_community_card()?;
+                match self.community_cards.len() {
+                    0 => {
+                        self.deal_community_card(Stage::Flop)?;
+                        self.deal_community_card(Stage::Turn)?;
+                        self.deal_community_card(Stage::River)?;
+                    }
+                    3 => {
+                        self.deal_community_card(Stage::Turn)?;
+                        self.deal_community_card(Stage::River)?;
+                    }
+                    4 => {
+                        self.deal_community_card(Stage::River)?;
+                    }
+                    5 => {}
+                    _ => bail!("Invalid number of community cards"),
                 }
                 self.player_in_turn = None;
                 return Ok(ServiceRequiredAction::FindWinners);
@@ -535,9 +588,9 @@ mod tests {
     #[test]
     fn test_deal_community_card() -> Result<()> {
         let mut room = Room::new();
-        for _ in 0..5 {
-            room.deal_community_card()?;
-        }
+        room.deal_community_card(Stage::Flop)?;
+        room.deal_community_card(Stage::Turn)?;
+        room.deal_community_card(Stage::River)?;
         assert_eq!(room.community_cards.len(), 5);
         Ok(())
     }
@@ -870,4 +923,43 @@ mod tests {
         );
         Ok(())
     }
+
+    #[test]
+    fn closest_to_dealer_should_return_correct_player() -> Result<()> {
+        let mut room = Room::new();
+        let player1 = Player::new("Alice".to_string(), 400);
+        let player2 = Player::new("Bob".to_string(), 400);
+        let player3 = Player::new("Charlie".to_string(), 400);
+        let player4 = Player::new("David".to_string(), 400);
+
+        room.join_player(player1.clone())?;
+        room.join_player(player2.clone())?;
+        room.join_player(player3.clone())?;
+        room.join_player(player4.clone())?;
+        room.proceed()?;
+
+        let player_ids = HashSet::from([player1.id, player2.id, player3.id, player4.id]);
+
+        let closest_player = room.closest_to_dealer(&player_ids)?;
+        assert_eq!(closest_player, player2.id);
+        Ok(())
+    }
+
+    #[test]
+    fn closest_to_dealer_should_return_error_if_no_dealer() -> Result<()> {
+        let mut room = Room::new();
+        let player1 = Player::new("Alice".to_string(), 400);
+        let player2 = Player::new("Bob".to_string(), 400);
+
+        room.join_player(player1.clone())?;
+        room.join_player(player2.clone())?;
+        room.proceed()?;
+
+        let player_ids = HashSet::from([player1.id, player2.id]);
+
+        let closest_player = room.closest_to_dealer(&player_ids)?;
+        assert_eq!(closest_player, player2.id);
+        Ok(())
+    }
+
 }

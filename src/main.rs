@@ -30,9 +30,5 @@ fn main() -> Result<()> {
     room.join_player(Player::new("Alice".to_string(), 500))?;
     room.join_player(Player::new("Bob".to_string(), 500))?;
 
-    for _ in 0..5 {
-        room.deal_community_card()?;
-    }
-    game_service.find_winners(&room)?;
     Ok(())
 }

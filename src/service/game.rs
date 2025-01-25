@@ -66,7 +66,7 @@ impl GameService {
             ServiceRequiredAction::NoAction => {}
             ServiceRequiredAction::FindWinners => {
                 let winners = self.find_winners(&room)?;
-                room.split_pot(winners);
+                room.split_pot(winners)?;
                 room.proceed()?;
             }
         }
@@ -625,8 +625,4 @@ mod tests {
 
         Ok(())
     }
-
-    // TODO: pot chopping, give remainder to the player who started first
-
-    // TODO: Flop should only burn one cards
 }
