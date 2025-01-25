@@ -612,7 +612,7 @@ mod tests {
         // river
         assert_eq!(room.stage, Stage::River);
         assert_eq!(room.player_in_turn, Some(charlie.id));
-        service.take_action(room.id, charlie.id, Action::AllIn)?;
+        let room = service.take_action(room.id, charlie.id, Action::AllIn)?;
         print!("{:?}", room.pots);
         assert_eq!(room.stage, Stage::River);
         let room = service.take_action(room.id, dennis.id, Action::Call)?;
