@@ -99,7 +99,7 @@ pub enum ServiceRequiredAction {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::room::{Position, Pot, Stage};
+    use crate::domain::room::{Position, Stage};
     use eyre::ContextCompat;
     use poker::cards;
 
@@ -289,13 +289,7 @@ mod tests {
         assert!(!new_dealer.has_taken_turn);
         assert!(!new_big_blind.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(new_dealer.id));
-        assert_eq!(
-            room.pots,
-            vec![Pot {
-                amount: 0,
-                players: HashSet::from([new_dealer.id, new_big_blind.id]),
-            }]
-        );
+        assert_eq!(room.pots, vec![]);
         Ok(())
     }
 
@@ -364,8 +358,6 @@ mod tests {
         assert!(best_hands.contains(&Uuid::from_u128(2)));
         Ok(())
     }
-
-    // TODO: implement split pots
 
     #[test]
     fn test_skip_player_with_zero_chips() -> Result<()> {
@@ -559,7 +551,8 @@ mod tests {
         };
         let alice = service.create_user("Alice".to_string(), 1000)?;
         let bob = service.create_user("Bob".to_string(), 1000)?;
-        let charlie = service.create_user("Charlie".to_string(), 1000)?;
+        let charlie = service.create_user("Charlie".to_string(), 2000)?;
+        let dennis = service.create_user("Dennis".to_string(), 2000)?;
 
         // create room
         let room = service.create_room()?;
@@ -567,8 +560,9 @@ mod tests {
         // join players
         let room = service.join_player(room.id, alice.id, 500)?;
         let room = service.join_player(room.id, bob.id, 1000)?;
-        let room = service.join_player(room.id, charlie.id, 1000)?;
-        assert_eq!(room.player_joining_next_round.len(), 1);
+        let room = service.join_player(room.id, charlie.id, 1500)?;
+        let room = service.join_player(room.id, dennis.id, 2000)?;
+        assert_eq!(room.player_joining_next_round.len(), 2);
 
         // preflop
         service.take_action(room.id, alice.id, Action::Call)?;
@@ -589,7 +583,42 @@ mod tests {
         // game restarts to preFlop
         assert_eq!(room.stage, Stage::PreFlop);
         assert_eq!(room.player_joining_next_round, vec![]);
-        assert_eq!(room.players.len(), 3);
+        assert_eq!(room.players.len(), 4);
+
+        // preflop
+        assert_eq!(room.player_in_turn, Some(alice.id));
+
+        service.take_action(room.id, alice.id, Action::Call)?;
+        service.take_action(room.id, bob.id, Action::Call)?;
+        service.take_action(room.id, charlie.id, Action::Call)?;
+        let room = service.take_action(room.id, dennis.id, Action::Check)?;
+        assert_eq!(room.stage, Stage::Flop);
+
+        // flop
+        // print all chips of players
+        assert_eq!(room.player_in_turn, Some(charlie.id));
+        service.take_action(room.id, charlie.id, Action::Raise(510))?;
+        service.take_action(room.id, dennis.id, Action::Call)?;
+        service.take_action(room.id, alice.id, Action::AllIn)?;
+        let room = service.take_action(room.id, bob.id, Action::Call)?;
+
+        // turn
+        assert_eq!(room.stage, Stage::Turn);
+        assert_eq!(room.player_in_turn, Some(charlie.id));
+        service.take_action(room.id, charlie.id, Action::Raise(510))?;
+        service.take_action(room.id, dennis.id, Action::Call)?;
+        let room = service.take_action(room.id, bob.id, Action::AllIn)?;
+
+        // river
+        assert_eq!(room.stage, Stage::River);
+        assert_eq!(room.player_in_turn, Some(charlie.id));
+        service.take_action(room.id, charlie.id, Action::AllIn)?;
+        print!("{:?}", room.pots);
+        assert_eq!(room.stage, Stage::River);
+        let room = service.take_action(room.id, dennis.id, Action::Call)?;
+
+        // game resets to preFlop
+        assert_eq!(room.stage, Stage::PreFlop);
 
         Ok(())
     }

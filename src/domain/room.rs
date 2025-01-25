@@ -119,7 +119,7 @@ impl Room {
             deck: Deck::new(),
             community_cards: Vec::with_capacity(5),
             stage: Stage::NotEnoughPlayers,
-            pots: vec![Pot::default()],
+            pots: vec![],
             player_joining_next_round: Vec::new(),
             player_leaving_next_round: HashMap::new(),
             player_in_turn: None,
@@ -212,12 +212,7 @@ impl Room {
     fn reset_table(&mut self) {
         self.seat_players();
 
-        // Reset the pot
-        let pot = Pot {
-            amount: 0,
-            players: self.players.iter().map(|p| p.id).collect(),
-        };
-        self.pots = vec![pot];
+        self.pots = vec![];
         // Reset the community cards
         self.community_cards.clear();
         // Reset the deck
@@ -255,8 +250,23 @@ impl Room {
                 .map(|(index, _)| index)
                 .wrap_err("Dealer not found")?,
         };
+        self.next_player_after(index_of_last_player_to_take_turn)
+    }
+
+    fn next_player_after(&self, curr_player_index: usize) -> Result<Uuid> {
+        let next_index = (curr_player_index + 1) % self.players.len();
+        let end_index = next_index + self.players.len();
+        let next_player_index = (next_index..end_index)
+            .map(|index| index % self.players.len())
+            .find(|index| {
+                self.players
+                    .get(*index)
+                    .is_some_and(|p| !p.has_folded && p.chips > 0)
+            })
+            .wrap_err("No players to act")?;
+
         self.players
-            .get((index_of_last_player_to_take_turn + 1) % self.players.len())
+            .get(next_player_index)
             .map(|p| p.id)
             .wrap_err("Player not found")
     }
@@ -306,7 +316,12 @@ impl Room {
             Stage::NotEnoughPlayers => self.players.len() >= 2,
             Stage::Showdown => true,
             _ => {
-                if self.players.iter().any(|p| !p.has_taken_turn) {
+                if self
+                    .players
+                    .iter()
+                    .filter(|p| !p.has_folded && p.chips > 0)
+                    .any(|p| !p.has_taken_turn)
+                {
                     return false;
                 }
                 let max_bet = self.players.iter().map(|p| p.bet).max().unwrap_or_default();
@@ -377,21 +392,7 @@ impl Room {
                 .map(|(index, _)| index)
                 .wrap_err("Player not found")?;
 
-            let next_index = (current_player_index + 1) % self.players.len();
-            let end_index = next_index + self.players.len();
-            let next_player_index = (next_index..end_index)
-                .map(|index| index % self.players.len())
-                .find(|index| {
-                    self.players
-                        .get(*index)
-                        .is_some_and(|p| !p.has_folded && p.chips > 0)
-                })
-                .wrap_err("No players to act")?;
-            let next_player_id = self
-                .players
-                .get(next_player_index)
-                .map(|p| p.id)
-                .wrap_err("Player not found")?;
+            let next_player_id = self.next_player_after(current_player_index)?;
 
             self.player_in_turn = Some(next_player_id);
             Ok(ServiceRequiredAction::NoAction)
@@ -433,9 +434,40 @@ impl Room {
         match self.stage {
             Stage::NotEnoughPlayers | Stage::Showdown => {}
             Stage::PreFlop | Stage::Flop | Stage::Turn | Stage::River => {
-                if let Some(p) = self.pots.last_mut() {
-                    p.amount += self.players.iter().map(|p| p.bet).sum::<u32>();
+                // create side pot if needed
+                let mut bets = self
+                    .players
+                    .iter()
+                    .filter(|p| p.bet > 0)
+                    .map(|p| (p.id, p.bet))
+                    .collect::<Vec<_>>();
+                bets.sort_by(|a, b| b.1.cmp(&a.1));
+                while let Some(smallest_bet) = bets.last().map(|p| p.1) {
+                    let mut pot = Pot {
+                        amount: 0,
+                        players: HashSet::new(),
+                    };
+                    for b in bets.iter_mut().rev() {
+                        b.1 -= smallest_bet;
+                        pot.amount += smallest_bet;
+                        pot.players.insert(b.0);
+                    }
+                    self.pots.push(pot);
+                    bets.retain(|(_, bet)| *bet > 0);
                 }
+
+                // merge consecutive pots with same players
+                let mut new_pots = vec![self.pots.first().cloned().wrap_err("No pots")?];
+                for i in 1..self.pots.len() {
+                    match new_pots.last_mut() {
+                        Some(pot) if pot.players == self.pots[i].players => {
+                            pot.amount += self.pots[i].amount;
+                        }
+                        _ => new_pots.push(self.pots[i].clone()),
+                    }
+                }
+                self.pots = new_pots;
+
                 self.players.iter_mut().for_each(|p| {
                     p.has_taken_turn = false;
                     p.bet = 0;
@@ -751,6 +783,91 @@ mod tests {
             },
         };
         assert_eq!(room.can_proceed_to_next_stage(), can_proceed);
+        Ok(())
+    }
+
+    #[test]
+    fn test_side_pots() -> Result<()> {
+        let mut room = Room::new();
+        let alice = Player::new("Alice".to_string(), 500);
+        let bob = Player::new("Bob".to_string(), 1000);
+        let charlie = Player::new("Charlie".to_string(), 1500);
+        let david = Player::new("David".to_string(), 2000);
+        let alice_id = alice.id;
+        let bob_id = bob.id;
+        let charlie_id = charlie.id;
+        let david_id = david.id;
+
+        room.players.push(alice);
+        room.players.push(bob);
+        room.players.push(charlie);
+        room.players.push(david);
+
+        room.proceed()?;
+        // PreFlop
+        assert_eq!(room.stage, Stage::PreFlop);
+        assert_eq!(room.player_in_turn, Some(david_id));
+
+        room.take_action(david_id, Action::Raise(500))?;
+        room.take_action(alice_id, Action::Call)?;
+        room.take_action(bob_id, Action::Call)?;
+        room.take_action(charlie_id, Action::Call)?;
+
+        assert_eq!(
+            room.pots,
+            vec![Pot {
+                amount: 2000,
+                players: HashSet::from([alice_id, bob_id, charlie_id, david_id]),
+            }]
+        );
+
+        // Flop
+        assert_eq!(room.stage, Stage::Flop);
+        assert_eq!(room.player_in_turn, Some(bob_id));
+
+        room.take_action(bob_id, Action::Raise(500))?;
+        room.take_action(charlie_id, Action::Call)?;
+        room.take_action(david_id, Action::Call)?;
+
+        // Turn
+        assert_eq!(
+            room.pots,
+            vec![
+                Pot {
+                    amount: 2000,
+                    players: HashSet::from([alice_id, bob_id, charlie_id, david_id]),
+                },
+                Pot {
+                    amount: 1500,
+                    players: HashSet::from([bob_id, charlie_id, david_id]),
+                },
+            ]
+        );
+        assert_eq!(room.stage, Stage::Turn);
+        assert_eq!(room.player_in_turn, Some(charlie_id));
+
+        room.take_action(charlie_id, Action::Raise(500))?;
+        room.take_action(david_id, Action::Call)?;
+
+        // Game skips to Showdown resets to PreFlop
+        assert_eq!(room.stage, Stage::Showdown);
+        assert_eq!(
+            room.pots,
+            vec![
+                Pot {
+                    amount: 2000,
+                    players: HashSet::from([alice_id, bob_id, charlie_id, david_id]),
+                },
+                Pot {
+                    amount: 1500,
+                    players: HashSet::from([bob_id, charlie_id, david_id]),
+                },
+                Pot {
+                    amount: 1000,
+                    players: HashSet::from([charlie_id, david_id]),
+                },
+            ]
+        );
         Ok(())
     }
 }
