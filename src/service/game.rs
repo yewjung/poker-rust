@@ -1,7 +1,7 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use eyre::{ensure, Result};
-use poker::Evaluator;
+use poker::{Eval, Evaluator};
 use uuid::Uuid;
 
 use crate::domain::room::{Action, Player, Room};
@@ -16,29 +16,41 @@ pub struct GameService {
 }
 
 impl GameService {
-    pub fn find_winners(&self, room: &Room) -> Result<HashSet<Uuid>> {
+    pub fn find_winners(&self, room: &Room) -> Result<Vec<(u32, HashSet<Uuid>)>> {
         ensure!(room.is_showdown(), "Game is not in the showdown stage yet");
-        let mut winners = HashSet::with_capacity(room.players.len());
-        let mut best_hand = None;
-        for (player_id, hand) in room.players_cards() {
-            let hand = self.evaluator.evaluate(hand)?;
-            match best_hand {
-                None => {
-                    best_hand = Some(hand);
-                    winners.insert(player_id);
-                }
-                Some(best) if hand.is_better_than(best) => {
-                    best_hand = Some(hand);
-                    winners.clear();
-                    winners.insert(player_id);
-                }
-                Some(best) if hand.is_equal_to(best) => {
-                    winners.insert(player_id);
-                }
-                _ => {}
-            }
+
+        let hands = room
+            .players_cards()
+            .into_iter()
+            .map(|(k, v)| Ok((k, self.evaluator.evaluate(v)?)))
+            .collect::<Result<HashMap<Uuid, Eval>>>()?;
+
+        let mut winners: Vec<(u32, HashSet<Uuid>)> = Vec::with_capacity(room.pots.len());
+        for pot in room.pots.iter().rev() {
+            let player_hands: Vec<_> = pot
+                .players
+                .iter()
+                .map(|player_id| (*player_id, *hands.get(player_id).unwrap_or(&Eval::WORST)))
+                .collect();
+            let best_hands = Self::all_best_hands(&player_hands);
+            winners.push((pot.amount, best_hands));
         }
         Ok(winners)
+    }
+
+    fn all_best_hands(v: &[(Uuid, Eval)]) -> HashSet<Uuid> {
+        let mut largest = HashSet::new();
+        let mut best_hand = Eval::WORST;
+        for (player_id, hand) in v {
+            if hand.is_better_than(best_hand) {
+                largest.clear();
+                largest.insert(*player_id);
+                best_hand = *hand;
+            } else if hand.is_equal_to(best_hand) {
+                largest.insert(*player_id);
+            }
+        }
+        largest
     }
 
     pub fn create_room(&mut self) -> Result<Room> {
@@ -54,8 +66,7 @@ impl GameService {
             ServiceRequiredAction::NoAction => {}
             ServiceRequiredAction::FindWinners => {
                 let winners = self.find_winners(&room)?;
-                println!("Winners: {:?}", winners);
-                room.split_pot(winners)?;
+                room.split_pot(winners);
                 room.proceed()?;
             }
         }
@@ -90,6 +101,7 @@ mod tests {
     use super::*;
     use crate::domain::room::{Position, Pot, Stage};
     use eyre::ContextCompat;
+    use poker::cards;
 
     #[test]
     fn test_whole_game_flow() -> Result<()> {
@@ -329,5 +341,261 @@ mod tests {
         Ok(())
     }
 
-    // TODO: implement All-in + split pots
+    #[test]
+    fn test_all_best_hands() -> Result<()> {
+        let evaluator = Evaluator::new();
+        let hands = vec![
+            (
+                Uuid::from_u128(1),
+                evaluator.evaluate(cards!("Ks Js Ts Qs As").try_collect::<Vec<_>>()?)?,
+            ),
+            (
+                Uuid::from_u128(2),
+                evaluator.evaluate(cards!("Kh Jh Th Qh Ah").try_collect::<Vec<_>>()?)?,
+            ),
+            (
+                Uuid::from_u128(3),
+                evaluator.evaluate(cards!("Ks Kd Kc Qs Qd").try_collect::<Vec<_>>()?)?,
+            ),
+        ];
+        let best_hands = GameService::all_best_hands(&hands);
+        assert_eq!(best_hands.len(), 2);
+        assert!(best_hands.contains(&Uuid::from_u128(1)));
+        assert!(best_hands.contains(&Uuid::from_u128(2)));
+        Ok(())
+    }
+
+    // TODO: implement split pots
+
+    #[test]
+    fn test_skip_player_with_zero_chips() -> Result<()> {
+        // setup
+        let mut service = GameService {
+            evaluator: Evaluator::new(),
+            room_repository: RoomRepository::new(),
+            user_repository: UserRepository::new(),
+        };
+        let alice = service.create_user("Alice".to_string(), 1000)?;
+        let bob = service.create_user("Bob".to_string(), 1000)?;
+
+        // create room
+        let room = service.create_room()?;
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+
+        // join players
+        let room = service.join_player(room.id, alice.id, 500)?;
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+        let room = service.join_player(room.id, bob.id, 1000)?;
+        assert_eq!(room.stage, Stage::PreFlop);
+
+        // assert initial bets
+        let alice = room
+            .players
+            .iter()
+            .find(|p| p.id == alice.id)
+            .expect("Alice not found");
+        let bob = room
+            .players
+            .iter()
+            .find(|p| p.id == bob.id)
+            .expect("Bob not found");
+        assert_eq!(alice.bet, 1);
+        assert_eq!(bob.bet, 2);
+        assert_eq!(alice.chips, 499);
+        assert_eq!(bob.chips, 998);
+
+        assert!(!alice.has_taken_turn);
+        assert!(!bob.has_taken_turn);
+
+        // alice takes action
+        let room = service.take_action(room.id, alice.id, Action::AllIn)?;
+        assert_eq!(room.player_in_turn, Some(bob.id));
+        let alice = room
+            .players
+            .iter()
+            .find(|p| p.id == alice.id)
+            .expect("Alice not found");
+        assert_eq!(alice.chips, 0);
+        assert_eq!(room.stage, Stage::PreFlop);
+        let room = service.take_action(room.id, bob.id, Action::Call)?;
+        let bob = room
+            .players
+            .iter()
+            .find(|p| p.id == bob.id)
+            .expect("Bob not found");
+        if bob.chips == 1500 {
+            // bob won, alice loss
+            assert_eq!(room.stage, Stage::NotEnoughPlayers);
+        } else {
+            // bob loss, alice won
+            assert_eq!(room.stage, Stage::PreFlop);
+            assert_eq!(room.player_in_turn, Some(bob.id));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_proceed_when_alice_reraise_bob() -> Result<()> {
+        // setup
+        let mut service = GameService {
+            evaluator: Evaluator::new(),
+            room_repository: RoomRepository::new(),
+            user_repository: UserRepository::new(),
+        };
+        let alice = service.create_user("Alice".to_string(), 1000)?;
+        let bob = service.create_user("Bob".to_string(), 1000)?;
+
+        // create room
+        let room = service.create_room()?;
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+
+        // join players
+        let room = service.join_player(room.id, alice.id, 500)?;
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+        let room = service.join_player(room.id, bob.id, 1000)?;
+        assert_eq!(room.stage, Stage::PreFlop);
+
+        // assert initial bets
+        let alice = room
+            .players
+            .iter()
+            .find(|p| p.id == alice.id)
+            .expect("Alice not found");
+        let bob = room
+            .players
+            .iter()
+            .find(|p| p.id == bob.id)
+            .expect("Bob not found");
+        assert_eq!(alice.bet, 1);
+        assert_eq!(bob.bet, 2);
+        assert_eq!(alice.chips, 499);
+
+        // alice takes action
+        let room = service.take_action(room.id, alice.id, Action::Raise(10))?;
+        assert_eq!(room.player_in_turn, Some(bob.id));
+        let room = service.take_action(room.id, bob.id, Action::Raise(20))?;
+        assert_eq!(room.player_in_turn, Some(alice.id));
+        let room = service.take_action(room.id, alice.id, Action::AllIn)?;
+        assert_eq!(room.player_in_turn, Some(bob.id));
+        let alice = room
+            .players
+            .iter()
+            .find(|p| p.id == alice.id)
+            .expect("Alice not found");
+        assert_eq!(alice.chips, 0);
+        assert_eq!(room.stage, Stage::PreFlop);
+        let room = service.take_action(room.id, bob.id, Action::Call)?;
+        let bob = room
+            .players
+            .iter()
+            .find(|p| p.id == bob.id)
+            .expect("Bob not found");
+        if bob.chips == 1500 {
+            // bob won, alice loss
+            assert_eq!(room.stage, Stage::NotEnoughPlayers);
+        } else {
+            // bob loss, alice won
+            assert_eq!(room.stage, Stage::PreFlop);
+            assert_eq!(room.player_in_turn, Some(bob.id));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_bob_all_in_during_flop() -> Result<()> {
+        // setup
+        let mut service = GameService {
+            evaluator: Evaluator::new(),
+            room_repository: RoomRepository::new(),
+            user_repository: UserRepository::new(),
+        };
+        let alice = service.create_user("Alice".to_string(), 1000)?;
+        let bob = service.create_user("Bob".to_string(), 1000)?;
+
+        // create room
+        let room = service.create_room()?;
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+
+        // join players
+        let room = service.join_player(room.id, alice.id, 500)?;
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+        let room = service.join_player(room.id, bob.id, 1000)?;
+        assert_eq!(room.stage, Stage::PreFlop);
+
+        // alice takes action
+        let room = service.take_action(room.id, alice.id, Action::Call)?;
+        assert_eq!(room.player_in_turn, Some(bob.id));
+        let room = service.take_action(room.id, bob.id, Action::AllIn)?;
+        assert_eq!(room.player_in_turn, Some(alice.id));
+        let error_message = service
+            .take_action(room.id, alice.id, Action::Call)
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            error_message,
+            "Alice does not have enough chips".to_string()
+        );
+        let room = service.take_action(room.id, alice.id, Action::AllIn)?;
+        assert_eq!(room.players.len(), 1);
+        assert_eq!(room.stage, Stage::NotEnoughPlayers);
+
+        match room.players.first() {
+            Some(player) => {
+                assert_eq!(player.chips, 1500);
+            }
+            None => panic!("Player not found"),
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_3_players() -> Result<()> {
+        // setup
+        let mut service = GameService {
+            evaluator: Evaluator::new(),
+            room_repository: RoomRepository::new(),
+            user_repository: UserRepository::new(),
+        };
+        let alice = service.create_user("Alice".to_string(), 1000)?;
+        let bob = service.create_user("Bob".to_string(), 1000)?;
+        let charlie = service.create_user("Charlie".to_string(), 1000)?;
+
+        // create room
+        let room = service.create_room()?;
+
+        // join players
+        let room = service.join_player(room.id, alice.id, 500)?;
+        let room = service.join_player(room.id, bob.id, 1000)?;
+        let room = service.join_player(room.id, charlie.id, 1000)?;
+        assert_eq!(room.player_joining_next_round.len(), 1);
+
+        // preflop
+        service.take_action(room.id, alice.id, Action::Call)?;
+        service.take_action(room.id, bob.id, Action::Check)?;
+
+        // flop
+        service.take_action(room.id, bob.id, Action::Check)?;
+        service.take_action(room.id, alice.id, Action::Check)?;
+
+        // turn
+        service.take_action(room.id, bob.id, Action::Check)?;
+        service.take_action(room.id, alice.id, Action::Check)?;
+
+        // river
+        service.take_action(room.id, bob.id, Action::Check)?;
+        let room = service.take_action(room.id, alice.id, Action::Check)?;
+
+        // game restarts to preFlop
+        assert_eq!(room.stage, Stage::PreFlop);
+        assert_eq!(room.player_joining_next_round, vec![]);
+        assert_eq!(room.players.len(), 3);
+
+        Ok(())
+
+    }
+
+    // TODO: pot chopping, give remainder to the player who started first
+
+    // TODO: Flop should only burn one cards
 }

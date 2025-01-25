@@ -56,7 +56,11 @@ impl Player {
     }
 
     fn bet_amount(&mut self, amount: u32) -> Result<()> {
-        ensure!(amount <= self.chips, "Not enough chips");
+        ensure!(
+            amount <= self.chips,
+            "{} does not have enough chips",
+            self.name
+        );
         self.bet += amount;
         self.chips -= amount;
         Ok(())
@@ -100,6 +104,7 @@ pub enum Action {
     Check,
     Call,
     Raise(u32),
+    AllIn,
 }
 
 #[derive(Debug, Clone)]
@@ -223,6 +228,8 @@ impl Room {
         // Remove players who left the game
         self.players
             .retain(|p| !self.player_leaving_next_round.contains_key(&p.id));
+        // Remove players who has no chips
+        self.players.retain(|p| p.chips > 0);
         self.player_leaving_next_round.clear();
         // Add players who joined the game
         self.players.append(&mut self.player_joining_next_round);
@@ -282,40 +289,37 @@ impl Room {
         self.stage == Stage::Showdown && self.community_cards.len() == 5
     }
 
-    pub fn split_pot(&mut self, winners: HashSet<Uuid>) -> Result<()> {
-        let total_pot = self.pots.pop().wrap_err("No pots")?.amount;
-        let total_winners = winners.len();
-        let earnings = total_pot / total_winners as u32;
-        self.players.iter_mut().for_each(|p| {
-            if winners.contains(&p.id) {
-                p.chips += earnings;
-            }
-        });
-        Ok(())
+    pub fn split_pot(&mut self, winners: Vec<(u32, HashSet<Uuid>)>) {
+        for (amount, winner_ids) in winners {
+            let earnings = amount / winner_ids.len() as u32;
+            self.players.iter_mut().for_each(|p| {
+                if winner_ids.contains(&p.id) {
+                    p.chips += earnings;
+                }
+            });
+        }
     }
 
     /// Check if all non-folded players have the same bet
     fn can_proceed_to_next_stage(&self) -> bool {
         match self.stage {
             Stage::NotEnoughPlayers => self.players.len() >= 2,
-            Stage::Showdown => self.pots.is_empty(),
+            Stage::Showdown => true,
             _ => {
-                let number_of_non_folder_players =
-                    self.players.iter().filter(|p| !p.has_folded).count();
-                if number_of_non_folder_players == 1 {
-                    return true;
+                if self.players
+                    .iter()
+                    .any(|p| !p.has_taken_turn) {
+                    return false;
                 }
-                let all_players_taken_turn = self
-                    .players
+                let max_bet = self.players
                     .iter()
-                    .all(|p| p.has_taken_turn || p.has_folded);
-                let all_non_folded_bets = self
-                    .players
-                    .iter()
-                    .filter(|p| !p.has_folded)
                     .map(|p| p.bet)
-                    .collect::<Vec<_>>();
-                all_players_taken_turn && all_non_folded_bets.windows(2).all(|w| w[0] == w[1])
+                    .max()
+                    .unwrap_or_default();
+                !self.players
+                    .iter()
+                    .filter(|p| self.player_in_turn.is_some_and(|q| q != p.id))
+                    .any(|p| p.chips > 0 && p.bet < max_bet && !p.has_folded)
             }
         }
     }
@@ -353,6 +357,10 @@ impl Room {
                 ensure!(amount + player.bet >= max_bet, "Invalid raise amount");
                 player.bet_amount(amount)?;
             }
+            Action::AllIn => {
+                let all_in_amount = player.chips;
+                player.bet_amount(all_in_amount)?;
+            }
         };
         player.has_taken_turn = true;
         self.proceed()
@@ -378,7 +386,11 @@ impl Room {
             let end_index = next_index + self.players.len();
             let next_player_index = (next_index..end_index)
                 .map(|index| index % self.players.len())
-                .find(|index| self.players.get(*index).is_some_and(|p| !p.has_folded))
+                .find(|index| {
+                    self.players
+                        .get(*index)
+                        .is_some_and(|p| !p.has_folded && p.chips > 0)
+                })
                 .wrap_err("No players to act")?;
             let next_player_id = self
                 .players
@@ -440,7 +452,12 @@ impl Room {
 
     fn proceed_to_next_stage(&mut self) -> Result<()> {
         self.end_stage()?;
-        if self.players.iter().filter(|p| !p.has_folded).count() == 1
+        if self
+            .players
+            .iter()
+            .filter(|p| !p.has_folded && p.chips > 0)
+            .count()
+            <= 1
             && self.stage != Stage::Showdown
         {
             self.stage = Stage::Showdown;
@@ -468,16 +485,6 @@ impl Room {
             Stage::River => self.stage = Stage::Showdown,
         }
         Ok(())
-    }
-}
-
-#[cfg(test)]
-impl Room {
-    pub fn players_of_ids(&self, ids: HashSet<Uuid>) -> Vec<&Player> {
-        self.players
-            .iter()
-            .filter(|p| ids.contains(&p.id))
-            .collect()
     }
 }
 
@@ -552,7 +559,13 @@ mod tests {
         };
 
         let winners = game_service.find_winners(&room)?;
-        let winners = room.players_of_ids(winners);
+        let (_, winner_ids) = winners.first().wrap_err("No winners")?;
+        let mut winners: Vec<_> = room
+            .players
+            .iter()
+            .filter(|p| winner_ids.contains(&p.id))
+            .collect();
+        winners.sort_by(|a, b| a.id.cmp(&b.id));
         // Both players have straight flushes
         assert_eq!(
             winners,
@@ -625,6 +638,71 @@ mod tests {
             positions,
             vec![Position::DealerAndSmallBlind, Position::BigBlind]
         );
+        Ok(())
+    }
+
+    struct PlayerState {
+        bet: u32,
+        has_taken_turn: bool,
+        has_folded: bool,
+    }
+
+    #[rstest::rstest]
+    #[case(0, false, false, 0, false, false, "Bob", false)]
+    #[case(0, false, false, 0, false, false, "Alice", false)]
+    #[case(10, true, false, 10, true, false, "Bob", true)]
+    #[case(10, true, false, 0, false, false, "Alice", false)]
+    #[case(10, true, false, 5, true, false, "Alice", false)]
+    #[case(15, true, false, 10, true, true, "Bob", true)]
+    #[case(500, true, false, 1000, true, false, "Bob", true)]
+    #[case(500, true, false, 1000, true, false, "Alice", true)]
+    #[case(500, true, false, 22, true, false, "Alice", false)]
+    fn test_can_proceed_to_next_stage(
+        #[case] alice_bet: u32,
+        #[case] alice_has_taken_turn: bool,
+        #[case] alice_has_folded: bool,
+        #[case] bob_bet: u32,
+        #[case] bob_has_taken_turn: bool,
+        #[case] bob_has_folded: bool,
+        #[case] player_in_turn: &str,
+        #[case] can_proceed: bool,
+    ) -> Result<()> {
+        let room = Room {
+            id: Uuid::new_v4(),
+            players: vec![
+                Player {
+                    id: Uuid::from_u128(1),
+                    name: "Alice".to_string(),
+                    hand: Some(Hand([card!("3s")?, card!("2s")?])),
+                    chips: 500 - alice_bet,
+                    bet: alice_bet,
+                    has_folded: alice_has_folded,
+                    position: Position::DealerAndSmallBlind,
+                    has_taken_turn: alice_has_taken_turn,
+                },
+                Player {
+                    id: Uuid::from_u128(2),
+                    name: "Bob".to_string(),
+                    hand: Some(Hand([card!("4s")?, card!("5s")?])),
+                    chips: 1000 - bob_bet,
+                    bet: bob_bet,
+                    has_folded: bob_has_folded,
+                    position: Position::BigBlind,
+                    has_taken_turn: bob_has_taken_turn,
+                },
+            ],
+            deck: Deck::new(),
+            community_cards: Vec::new(),
+            stage: Stage::PreFlop,
+            pots: vec![Pot {
+                amount: 0,
+                players: HashSet::from([Uuid::from_u128(1), Uuid::from_u128(2)]),
+            }],
+            player_joining_next_round: Vec::new(),
+            player_leaving_next_round: HashMap::new(),
+            player_in_turn: if player_in_turn == "Alice" { Some(Uuid::from_u128(1)) } else { Some(Uuid::from_u128(2)) },
+        };
+        assert_eq!(room.can_proceed_to_next_stage(), can_proceed);
         Ok(())
     }
 }
