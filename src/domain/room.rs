@@ -306,17 +306,12 @@ impl Room {
             Stage::NotEnoughPlayers => self.players.len() >= 2,
             Stage::Showdown => true,
             _ => {
-                if self.players
-                    .iter()
-                    .any(|p| !p.has_taken_turn) {
+                if self.players.iter().any(|p| !p.has_taken_turn) {
                     return false;
                 }
-                let max_bet = self.players
-                    .iter()
-                    .map(|p| p.bet)
-                    .max()
-                    .unwrap_or_default();
-                !self.players
+                let max_bet = self.players.iter().map(|p| p.bet).max().unwrap_or_default();
+                !self
+                    .players
                     .iter()
                     .filter(|p| self.player_in_turn.is_some_and(|q| q != p.id))
                     .any(|p| p.chips > 0 && p.bet < max_bet && !p.has_folded)
@@ -648,22 +643,71 @@ mod tests {
     }
 
     #[rstest::rstest]
-    #[case(0, false, false, 0, false, false, "Bob", false)]
-    #[case(0, false, false, 0, false, false, "Alice", false)]
-    #[case(10, true, false, 10, true, false, "Bob", true)]
-    #[case(10, true, false, 0, false, false, "Alice", false)]
-    #[case(10, true, false, 5, true, false, "Alice", false)]
-    #[case(15, true, false, 10, true, true, "Bob", true)]
-    #[case(500, true, false, 1000, true, false, "Bob", true)]
-    #[case(500, true, false, 1000, true, false, "Alice", true)]
-    #[case(500, true, false, 22, true, false, "Alice", false)]
+    #[case(
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        "Bob",
+        false
+    )]
+    #[case(
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        "Alice",
+        false
+    )]
+    #[case(
+        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
+        "Bob",
+        true
+    )]
+    #[case(
+        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        "Alice",
+        false
+    )]
+    #[case(
+        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 5, has_taken_turn: true, has_folded: false },
+        "Alice",
+        false
+    )]
+    #[case(
+        PlayerState { bet: 15, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 10, has_taken_turn: true, has_folded: true },
+        "Bob",
+        true
+    )]
+    #[case(
+        PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 1000, has_taken_turn: true, has_folded: false },
+        "Bob",
+        true
+    )]
+    #[case(
+        PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 1000, has_taken_turn: true, has_folded: false },
+        "Alice",
+        true
+    )]
+    #[case(
+        PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 22, has_taken_turn: true, has_folded: false },
+        "Alice",
+        false
+    )]
     fn test_can_proceed_to_next_stage(
-        #[case] alice_bet: u32,
-        #[case] alice_has_taken_turn: bool,
-        #[case] alice_has_folded: bool,
-        #[case] bob_bet: u32,
-        #[case] bob_has_taken_turn: bool,
-        #[case] bob_has_folded: bool,
+        #[case] PlayerState {
+            bet: alice_bet,
+            has_taken_turn: alice_has_taken_turn,
+            has_folded: alice_has_folded,
+        }: PlayerState,
+        #[case] PlayerState {
+            bet: bob_bet,
+            has_taken_turn: bob_has_taken_turn,
+            has_folded: bob_has_folded,
+        }: PlayerState,
         #[case] player_in_turn: &str,
         #[case] can_proceed: bool,
     ) -> Result<()> {
@@ -700,7 +744,11 @@ mod tests {
             }],
             player_joining_next_round: Vec::new(),
             player_leaving_next_round: HashMap::new(),
-            player_in_turn: if player_in_turn == "Alice" { Some(Uuid::from_u128(1)) } else { Some(Uuid::from_u128(2)) },
+            player_in_turn: if player_in_turn == "Alice" {
+                Some(Uuid::from_u128(1))
+            } else {
+                Some(Uuid::from_u128(2))
+            },
         };
         assert_eq!(room.can_proceed_to_next_stage(), can_proceed);
         Ok(())

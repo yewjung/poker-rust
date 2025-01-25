@@ -536,14 +536,14 @@ mod tests {
             "Alice does not have enough chips".to_string()
         );
         let room = service.take_action(room.id, alice.id, Action::AllIn)?;
-        assert_eq!(room.players.len(), 1);
-        assert_eq!(room.stage, Stage::NotEnoughPlayers);
-
-        match room.players.first() {
-            Some(player) => {
-                assert_eq!(player.chips, 1500);
-            }
-            None => panic!("Player not found"),
+        if room.players.iter().any(|p| p.chips == 1500) {
+            // someone won
+            assert_eq!(room.players.len(), 1);
+            assert_eq!(room.stage, Stage::NotEnoughPlayers);
+        } else {
+            // draw
+            assert_eq!(room.stage, Stage::PreFlop);
+            assert_eq!(room.player_in_turn, Some(bob.id));
         }
 
         Ok(())
@@ -592,7 +592,6 @@ mod tests {
         assert_eq!(room.players.len(), 3);
 
         Ok(())
-
     }
 
     // TODO: pot chopping, give remainder to the player who started first
