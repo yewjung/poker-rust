@@ -1,34 +1,47 @@
-use eyre::Result;
-use poker::Evaluator;
-
-use crate::domain::room::{Player, Room};
+use crate::domain::auth::SignupRequest;
+use crate::repository::auth::AuthUserRepository;
 use crate::repository::rooms::RoomRepository;
 use crate::repository::users::UserRepository;
+use crate::service::auth::AuthService;
 use crate::service::game::GameService;
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::post;
+use axum::{Extension, Json, Router};
+use poker::Evaluator;
 
 mod domain;
 mod error;
 mod repository;
+mod routes;
 mod service;
 
-fn main() -> Result<()> {
-    // evaluator
-    let evaluator = Evaluator::new();
-
-    // repository
+#[tokio::main]
+async fn main() {
+    // repositories
     let room_repository = RoomRepository::new();
     let user_repository = UserRepository::new();
 
-    // service
-    let game_service = GameService {
-        evaluator,
-        room_repository,
-        user_repository,
+    let api = routes::Api {
+        game_service: GameService {
+            evaluator: Evaluator::new(),
+            room_repository,
+            user_repository,
+        },
+        auth_service: AuthService {
+            auth_repository: AuthUserRepository::new(),
+        },
     };
+    let router = Router::new();
+    let router = router.route("/signup", post(signup)).layer(Extension(api));
 
-    let mut room = Room::new();
-    room.join_player(Player::new("Alice".to_string(), 500))?;
-    room.join_player(Player::new("Bob".to_string(), 500))?;
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    axum::serve(listener, router).await.unwrap();
+}
 
-    Ok(())
+async fn signup(
+    Extension(api): Extension<routes::Api>,
+    Json(payload): Json<SignupRequest>,
+) -> impl IntoResponse {
+    (StatusCode::OK, "msg")
 }

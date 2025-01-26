@@ -3,6 +3,7 @@ use eyre::{ContextCompat, Result};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+#[derive(Clone)]
 pub struct UserRepository {
     pub users: HashMap<Uuid, User>,
 }

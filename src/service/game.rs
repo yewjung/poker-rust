@@ -9,6 +9,7 @@ use crate::domain::user::User;
 use crate::repository::rooms::RoomRepository;
 use crate::repository::users::UserRepository;
 
+#[derive(Clone)]
 pub struct GameService {
     pub evaluator: Evaluator,
     pub room_repository: RoomRepository,

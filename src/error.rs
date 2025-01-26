@@ -6,4 +6,6 @@ pub enum Error {
     EmptyDeck,
     #[error("Invalid position: {0}")]
     InvalidPosition(u64),
+    #[error("Email already exists")]
+    EmailAlreadyExists,
 }

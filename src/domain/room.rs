@@ -961,5 +961,4 @@ mod tests {
         assert_eq!(closest_player, player2.id);
         Ok(())
     }
-
 }
