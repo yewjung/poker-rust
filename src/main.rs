@@ -44,9 +44,10 @@ async fn main() -> Result<()> {
             auth_repository: AuthUserRepository::new(),
         },
     };
-    let router = Router::new();
-    let router = router.route("/", get(|| async { "Hello, World!" }));
-    let router = router.route("/signup", post(signup)).layer(Extension(api));
+    let router = Router::new()
+        .route("/", get(|| async { "Hello, World!" }))
+        .route("/signup", post(signup))
+        .layer(Extension(api));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
     axum::serve(listener, router).await.unwrap();
