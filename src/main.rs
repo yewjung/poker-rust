@@ -1,14 +1,19 @@
+use std::str::FromStr;
+
+use axum::http::StatusCode;
+use axum::response::IntoResponse;
+use axum::routing::{get, post};
+use axum::{Extension, Json, Router};
+use eyre::Result;
+use poker::Evaluator;
+use refinery::config::Config;
+
 use crate::domain::auth::SignupRequest;
 use crate::repository::auth::AuthUserRepository;
 use crate::repository::rooms::RoomRepository;
 use crate::repository::users::UserRepository;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
-use axum::http::StatusCode;
-use axum::response::IntoResponse;
-use axum::routing::post;
-use axum::{Extension, Json, Router};
-use poker::Evaluator;
 
 mod domain;
 mod error;
@@ -16,8 +21,15 @@ mod repository;
 mod routes;
 mod service;
 
+refinery::embed_migrations!("migrations");
+
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
+    // run migrations
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set");
+    let mut config = Config::from_str(&database_url)?;
+    migrations::runner().run_async(&mut config).await?;
+
     // repositories
     let room_repository = RoomRepository::new();
     let user_repository = UserRepository::new();
@@ -33,10 +45,12 @@ async fn main() {
         },
     };
     let router = Router::new();
+    let router = router.route("/", get(|| async { "Hello, World!" }));
     let router = router.route("/signup", post(signup)).layer(Extension(api));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
     axum::serve(listener, router).await.unwrap();
+    Ok(())
 }
 
 async fn signup(
