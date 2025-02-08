@@ -8,4 +8,6 @@ pub enum Error {
     InvalidPosition(u64),
     #[error("Email already exists")]
     EmailAlreadyExists,
+    #[error("Invalid password")]
+    InvalidPassword,
 }

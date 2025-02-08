@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+use sqlx::types::chrono::{DateTime, Utc};
+use sqlx::types::Uuid;
+use sqlx::FromRow;
 use validator::Validate;
 
 #[derive(Debug, Validate, Deserialize, Serialize)]
@@ -9,9 +11,24 @@ pub struct SignupRequest {
     pub password: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Validate, Deserialize, Serialize)]
+pub struct LoginRequest {
+    #[validate(email)]
+    pub email: String,
+    pub password: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
 pub struct AuthUser {
     pub user_id: Uuid,
     pub email: String,
-    pub password: String,
+    pub hashed_password: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub struct Session {
+    pub token: String,
+    pub user_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

@@ -2,13 +2,14 @@ use std::collections::{HashMap, HashSet};
 
 use eyre::{bail, ensure, ContextCompat, Report, Result};
 use poker::{box_cards, Card};
+use sqlx::{FromRow, Type};
 use uuid::Uuid;
 
 use crate::domain::deck::Deck;
 use crate::domain::user::User;
 use crate::service::game::ServiceRequiredAction;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct Room {
     pub id: Uuid,
     pub players: Vec<Player>,
@@ -34,7 +35,7 @@ pub struct Player {
     pub has_taken_turn: bool,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 #[cfg_attr(test, derive(PartialEq))]
 pub struct Pot {
     pub amount: u32,
@@ -80,7 +81,8 @@ impl Player {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Type)]
+#[sqlx(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Stage {
     NotEnoughPlayers,
     PreFlop,
@@ -600,7 +602,7 @@ mod tests {
         let game_service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
-            user_repository: UserRepository::new(),
+            user_repository: UserRepository::faux(),
         };
         let room = Room {
             id: Uuid::new_v4(),

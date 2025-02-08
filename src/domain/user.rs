@@ -1,8 +1,10 @@
-use uuid::Uuid;
+use sqlx::types::Uuid;
+use sqlx::FromRow;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, FromRow)]
 pub struct User {
     pub id: Uuid,
     pub name: String,
-    pub balance: u32,
+    pub balance: i64,
+    pub current_room: Option<Uuid>,
 }
