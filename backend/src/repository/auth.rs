@@ -18,8 +18,8 @@ impl AuthUserRepository {
     pub async fn create_user(&self, email: String, hashed_password: String) -> Result<AuthUser> {
         sqlx::query_as(
             r#"
-            INSERT INTO users (user_id, email, password)
-            VALUES ($1, $2, $3)
+            INSERT INTO auth_users (id, email, hashed_password)
+            VALUES ($1, $2, $3) RETURNING *
             "#,
         )
         .bind(Uuid::new_v4())
@@ -33,7 +33,7 @@ impl AuthUserRepository {
     pub async fn get(&self, email: String) -> Result<AuthUser> {
         sqlx::query_as(
             r#"
-            SELECT * FROM users
+            SELECT * FROM auth_users
             WHERE email = $1
             "#,
         )
@@ -47,7 +47,7 @@ impl AuthUserRepository {
         sqlx::query(
             r#"
             SELECT EXISTS (
-                SELECT 1 FROM users
+                SELECT 1 FROM auth_users
                 WHERE email = $1
             )
             "#,
@@ -57,5 +57,20 @@ impl AuthUserRepository {
         .await
         .map(|row| row.get(0))
         .map_err(Into::into)
+    }
+
+    pub async fn update_token(&self, user_id: Uuid, token: Uuid) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE auth_users
+            SET session_token = $1
+            WHERE id = $2
+            "#,
+        )
+        .bind(token)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
     }
 }

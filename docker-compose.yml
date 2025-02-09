@@ -24,6 +24,7 @@ services:
       - "8080:8080"  # Exposes your Rust web server on port 8080
     environment:
       DATABASE_URL: postgres://user:password@postgres:5432/my_database
+      RUST_LOG: debug
     depends_on:
       - postgres  # Ensures the database service starts before the Rust server
 

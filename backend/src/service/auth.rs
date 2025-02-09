@@ -1,22 +1,20 @@
-use crate::domain::auth::AuthUser;
-use crate::error::Error;
-use crate::repository::auth::AuthUserRepository;
-
-use crate::repository::sessions::SessionRepository;
 use bcrypt::{hash, verify, DEFAULT_COST};
 use eyre::{ensure, Result};
 use sqlx::types::Uuid;
 
+use crate::domain::auth::AuthUser;
+use crate::error::Error;
+use crate::repository::auth::AuthUserRepository;
+
 #[derive(Clone)]
 pub struct AuthService {
     pub auth_repository: AuthUserRepository,
-    pub session_repository: SessionRepository,
 }
 
 impl AuthService {
     pub async fn signup(&self, email: String, password: String) -> Result<AuthUser> {
         ensure!(
-            self.auth_repository.exists(email.clone()).await?,
+            !self.auth_repository.exists(email.clone()).await?,
             Error::EmailAlreadyExists
         );
         let hashed_password = hash(password, DEFAULT_COST)?;
@@ -32,7 +30,7 @@ impl AuthService {
             Error::InvalidPassword
         );
         let token = Uuid::new_v4();
-        self.session_repository.upsert(user.user_id, token).await?;
+        self.auth_repository.update_token(user.id, token).await?;
 
         Ok(token)
     }

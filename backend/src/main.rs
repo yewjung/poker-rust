@@ -4,7 +4,9 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
+use env_logger;
 use eyre::Result;
+use log::{error, info};
 use poker::Evaluator;
 use refinery::config::Config;
 use sqlx::PgPool;
@@ -12,7 +14,6 @@ use sqlx::PgPool;
 use crate::domain::auth::{LoginRequest, SignupRequest};
 use crate::repository::auth::AuthUserRepository;
 use crate::repository::rooms::RoomRepository;
-use crate::repository::sessions::SessionRepository;
 use crate::repository::users::UserRepository;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
@@ -27,6 +28,10 @@ refinery::embed_migrations!("migrations");
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // setup log
+    env_logger::init(); // Initialize the logger
+    info!("server starts with logging");
+
     // run migrations
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set");
     let mut config = Config::from_str(&database_url)?;
@@ -37,7 +42,6 @@ async fn main() -> Result<()> {
     let room_repository = RoomRepository::new();
     let user_repository = UserRepository::new(pool.clone());
     let auth_repository = AuthUserRepository::new(pool.clone());
-    let session_repository = SessionRepository { pool: pool.clone() };
 
     let api = routes::Api {
         game_service: GameService {
@@ -45,10 +49,7 @@ async fn main() -> Result<()> {
             room_repository,
             user_repository,
         },
-        auth_service: AuthService {
-            auth_repository,
-            session_repository,
-        },
+        auth_service: AuthService { auth_repository },
     };
     let router = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
@@ -67,7 +68,10 @@ async fn signup(
 ) -> impl IntoResponse {
     match api.signup(payload).await {
         Ok(_) => (StatusCode::CREATED, "User created"),
-        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, ""),
+        Err(e) => {
+            error!("Error occured: {:?}", e);
+            (StatusCode::INTERNAL_SERVER_ERROR, "")
+        }
     }
 }
 
@@ -77,6 +81,9 @@ async fn login(
 ) -> impl IntoResponse {
     match api.login(payload).await {
         Ok(token) => (StatusCode::OK, token.to_string()),
-        Err(_) => (StatusCode::UNAUTHORIZED, "".to_string()),
+        Err(e) => {
+            error!("Error occured: {:?}", e);
+            (StatusCode::UNAUTHORIZED, "".to_string())
+        }
     }
 }

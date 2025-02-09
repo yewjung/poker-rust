@@ -20,15 +20,10 @@ pub struct LoginRequest {
 
 #[derive(Debug, Clone, FromRow)]
 pub struct AuthUser {
-    pub user_id: Uuid,
+    pub id: Uuid,
     pub email: String,
     pub hashed_password: String,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub struct Session {
-    pub token: String,
-    pub user_id: Uuid,
+    pub session_token: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
