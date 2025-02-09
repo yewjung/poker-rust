@@ -70,22 +70,28 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
 
     assert_eq!(response.status(), StatusCode::OK);
     let user: User = response.json().await?;
-    assert_eq!(user, User {
-        id: user.id,
-        name: "new_username".to_string(),
-        balance: 1000,
-        current_room: None,
-    });
+    assert_eq!(
+        user,
+        User {
+            id: user.id,
+            name: "new_username".to_string(),
+            balance: 1000,
+            current_room: None,
+        }
+    );
 
     // get profile
     let response = client.get_profile(token).await?;
     assert_eq!(response.status(), StatusCode::OK);
     let user: User = response.json().await?;
-    assert_eq!(user, User {
-        id: user.id,
-        name: "new_username".to_string(),
-        balance: 1000,
-        current_room: None,
-    });
+    assert_eq!(
+        user,
+        User {
+            id: user.id,
+            name: "new_username".to_string(),
+            balance: 1000,
+            current_room: None,
+        }
+    );
     Ok(())
 }

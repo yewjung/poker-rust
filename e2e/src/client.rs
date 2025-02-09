@@ -24,7 +24,11 @@ impl Client {
         self.client.post(url).json(&request).send().await
     }
 
-    pub async fn update_profile(&self, token: String, request: UpdateProfileRequest) -> Result<Response, Error> {
+    pub async fn update_profile(
+        &self,
+        token: String,
+        request: UpdateProfileRequest,
+    ) -> Result<Response, Error> {
         let url = format!("{}/profile", BASE_URL);
         self.client
             .patch(url)

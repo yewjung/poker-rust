@@ -25,4 +25,3 @@ pub struct User {
     pub balance: i64,
     pub current_room: Option<Uuid>,
 }
-
