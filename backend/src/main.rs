@@ -14,7 +14,10 @@ use poker::Evaluator;
 use refinery::config::Config;
 use sqlx::types::Uuid;
 use sqlx::PgPool;
-
+use socketioxide::{
+    extract::SocketRef,
+    SocketIo,
+};
 use crate::domain::auth::{AuthUser, LoginRequest, SignupRequest, UpdateProfileRequest};
 use crate::error::Error;
 use crate::repository::auth::AuthUserRepository;
@@ -50,6 +53,7 @@ async fn main() -> Result<()> {
     let user_repository = Arc::new(UserRepository::new(pool.clone()));
     let auth_repository = AuthUserRepository::new(pool.clone());
 
+    // API
     let api = Api {
         game_service: GameService {
             evaluator: Evaluator::new(),
@@ -59,12 +63,28 @@ async fn main() -> Result<()> {
         auth_service: AuthService { auth_repository },
         user_service: UserService { user_repository },
     };
+
+    // setting up websocket
+    let (layer, io) = SocketIo::new_layer();
+
+    // Register a handler for the default namespace
+    io.ns("/game", |s: SocketRef| {
+        // For each "message" event received, send a "message-back" event with the "Hello World!" event
+        s.on("message", |s: SocketRef| {
+            s.emit("message-back", "Hello World!").ok();
+        });
+    });
+
+
+    // routes
     let router = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route("/signup", post(signup))
         .route("/login", post(login))
         .route("/profile", patch(update_profile))
         .route("/profile", get(get_profile))
+        .route("/game", get(|| async { "WebSocket endpoint at /game" }))
+        .layer(layer)
         .layer(Extension(api));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
