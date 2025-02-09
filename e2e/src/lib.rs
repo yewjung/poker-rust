@@ -1,5 +1,5 @@
 mod client;
-pub(crate) mod payloads;
+pub(crate) mod domain;
 
 #[cfg(test)]
 mod tests;

@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use tap::TapFallible;
 
 use crate::client::Client;
-use crate::payloads::{LoginRequest, SignupRequest};
+use crate::domain::{LoginRequest, SignupRequest, UpdateProfileRequest, User};
 
 #[tokio::test]
 async fn test_signup_and_login() -> Result<(), reqwest::Error> {
@@ -58,5 +58,34 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
     };
     let response = client.signup(request).await?;
     assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    // update profile
+    let update_profile_request = UpdateProfileRequest {
+        username: "new_username".to_string(),
+    };
+    let response = client
+        .update_profile(token.clone(), update_profile_request)
+        .await
+        .tap_err(|e| println!("Error: {:?}", e))?;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let user: User = response.json().await?;
+    assert_eq!(user, User {
+        id: user.id,
+        name: "new_username".to_string(),
+        balance: 1000,
+        current_room: None,
+    });
+
+    // get profile
+    let response = client.get_profile(token).await?;
+    assert_eq!(response.status(), StatusCode::OK);
+    let user: User = response.json().await?;
+    assert_eq!(user, User {
+        id: user.id,
+        name: "new_username".to_string(),
+        balance: 1000,
+        current_room: None,
+    });
     Ok(())
 }
