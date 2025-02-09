@@ -73,4 +73,17 @@ impl AuthUserRepository {
         .await?;
         Ok(())
     }
+
+    pub async fn get_by_token(&self, token: Uuid) -> Result<Option<AuthUser>> {
+        sqlx::query_as(
+            r#"
+            SELECT * FROM auth_users
+            WHERE session_token = $1
+            "#,
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
 }

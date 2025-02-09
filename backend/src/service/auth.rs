@@ -34,4 +34,8 @@ impl AuthService {
 
         Ok(token)
     }
+
+    pub async fn get_user(&self, token: Uuid) -> Result<Option<AuthUser>> {
+        self.auth_repository.get_by_token(token).await
+    }
 }

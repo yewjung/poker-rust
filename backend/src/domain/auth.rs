@@ -18,6 +18,11 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct UpdateProfileRequest {
+    pub username: String,
+}
+
 #[derive(Debug, Clone, FromRow)]
 pub struct AuthUser {
     pub id: Uuid,

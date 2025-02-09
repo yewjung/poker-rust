@@ -11,7 +11,7 @@ CREATE TABLE auth_users (
 CREATE TABLE users (
     id UUID PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
-    balance INT DEFAULT 0,
+    balance BIGINT DEFAULT 0,
     current_room UUID DEFAULT NULL,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()

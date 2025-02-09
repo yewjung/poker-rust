@@ -8,13 +8,15 @@ pub struct UserRepository {
     pool: sqlx::PgPool,
 }
 
+const DEFAULT_BALANCE: i64 = 1000;
+
 #[cfg_attr(test, faux::methods)]
 impl UserRepository {
     pub fn new(pool: sqlx::PgPool) -> Self {
         Self { pool }
     }
 
-    pub async fn create_user(&mut self, name: String, balance: i64) -> Result<User> {
+    pub async fn create_user(&self, name: String, balance: i64) -> Result<User> {
         sqlx::query_as(
             r#"
             INSERT INTO users (id, name, balance)
@@ -24,6 +26,23 @@ impl UserRepository {
         .bind(Uuid::new_v4())
         .bind(&name)
         .bind(balance)
+        .fetch_one(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    pub async fn upsert_user_with_username(&self, id: Uuid, name: String) -> Result<User> {
+        sqlx::query_as(
+            r#"
+            INSERT INTO users (id, name, balance)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (id) DO UPDATE SET name = $2
+            RETURNING *
+            "#,
+        )
+        .bind(id)
+        .bind(&name)
+        .bind(DEFAULT_BALANCE)
         .fetch_one(&self.pool)
         .await
         .map_err(Into::into)
@@ -58,7 +77,7 @@ impl UserRepository {
         Ok(())
     }
 
-    pub async fn update_balance(&mut self, id: Uuid, balance: i64) -> Result<()> {
+    pub async fn update_balance(&self, id: Uuid, balance: i64) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE users

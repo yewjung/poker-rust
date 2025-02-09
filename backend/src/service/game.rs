@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
 use eyre::{ensure, ContextCompat, Result};
 use poker::{Eval, Evaluator};
@@ -13,7 +14,7 @@ use crate::repository::users::UserRepository;
 pub struct GameService {
     pub evaluator: Evaluator,
     pub room_repository: RoomRepository,
-    pub user_repository: UserRepository,
+    pub user_repository: Arc<UserRepository>,
 }
 
 impl GameService {
@@ -61,7 +62,7 @@ impl GameService {
     }
 
     // this function takes action from a player
-    pub fn take_action(&mut self, room_id: Uuid, player_id: Uuid, action: Action) -> Result<Room> {
+    pub fn take_action(&self, room_id: Uuid, player_id: Uuid, action: Action) -> Result<Room> {
         if let Some(mut room) = self.room_repository.get_mut_lock(room_id) {
             let action_required = room.take_action(player_id, action)?;
             match action_required {
@@ -76,7 +77,7 @@ impl GameService {
         self.room_repository.get(room_id).wrap_err("Room not found")
     }
 
-    pub async fn join_player(&mut self, room_id: Uuid, user_id: Uuid, buy_in: i64) -> Result<Room> {
+    pub async fn join_player(&self, room_id: Uuid, user_id: Uuid, buy_in: i64) -> Result<Room> {
         if let Some(mut room) = self.room_repository.get_mut_lock(room_id) {
             let mut user = self.user_repository.get(user_id).await?;
             ensure!(buy_in <= user.balance, "Insufficient balance");
@@ -90,7 +91,7 @@ impl GameService {
         self.room_repository.get(room_id).wrap_err("Room not found")
     }
 
-    pub async fn create_user(&mut self, name: String, balance: i64) -> Result<User> {
+    pub async fn create_user(&self, name: String, balance: i64) -> Result<User> {
         self.user_repository.create_user(name, balance).await
     }
 }

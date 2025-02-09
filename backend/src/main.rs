@@ -1,23 +1,29 @@
 use std::str::FromStr;
+use std::sync::Arc;
 
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::routing::{get, post};
+use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
-use env_logger;
+use axum_extra::headers::authorization::Bearer;
+use axum_extra::headers::Authorization;
+use axum_extra::TypedHeader;
 use eyre::Result;
 use log::{error, info};
 use poker::Evaluator;
 use refinery::config::Config;
+use sqlx::types::Uuid;
 use sqlx::PgPool;
 
-use crate::domain::auth::{LoginRequest, SignupRequest};
+use crate::domain::auth::{AuthUser, LoginRequest, SignupRequest, UpdateProfileRequest};
 use crate::error::Error;
 use crate::repository::auth::AuthUserRepository;
 use crate::repository::rooms::RoomRepository;
 use crate::repository::users::UserRepository;
+use crate::routes::Api;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
+use crate::service::users::UserService;
 
 mod domain;
 mod error;
@@ -41,21 +47,24 @@ async fn main() -> Result<()> {
 
     // repositories
     let room_repository = RoomRepository::new();
-    let user_repository = UserRepository::new(pool.clone());
+    let user_repository = Arc::new(UserRepository::new(pool.clone()));
     let auth_repository = AuthUserRepository::new(pool.clone());
 
-    let api = routes::Api {
+    let api = Api {
         game_service: GameService {
             evaluator: Evaluator::new(),
             room_repository,
-            user_repository,
+            user_repository: user_repository.clone(),
         },
         auth_service: AuthService { auth_repository },
+        user_service: UserService { user_repository },
     };
     let router = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         .route("/signup", post(signup))
         .route("/login", post(login))
+        .route("/profile", patch(update_profile))
+        .route("/profile", get(get_profile))
         .layer(Extension(api));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
@@ -64,17 +73,17 @@ async fn main() -> Result<()> {
 }
 
 async fn signup(
-    Extension(api): Extension<routes::Api>,
+    Extension(api): Extension<Api>,
     Json(payload): Json<SignupRequest>,
 ) -> impl IntoResponse {
     match api.signup(payload).await {
-        Ok(_) => (StatusCode::CREATED, "User created".to_string()),
-        Err(e) => report_into_response(e),
+        Ok(_) => StatusCode::CREATED.into_response(),
+        Err(e) => report_into_response(e).into_response(),
     }
 }
 
 async fn login(
-    Extension(api): Extension<routes::Api>,
+    Extension(api): Extension<Api>,
     Json(payload): Json<LoginRequest>,
 ) -> impl IntoResponse {
     match api.login(payload).await {
@@ -83,10 +92,51 @@ async fn login(
     }
 }
 
+async fn update_profile(
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Extension(api): Extension<Api>,
+    Json(payload): Json<UpdateProfileRequest>,
+) -> impl IntoResponse {
+    let auth_user = match get_auth_user(auth, &api).await {
+        Ok(value) => value,
+        Err(status_code) => return status_code.into_response(),
+    };
+    match api.update_profile(auth_user.id, payload).await {
+        Ok(user) => (StatusCode::OK, Json(user)).into_response(),
+        Err(e) => report_into_response(e).into_response(),
+    }
+}
+
+async fn get_profile(
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Extension(api): Extension<Api>,
+) -> impl IntoResponse {
+    let auth_user = match get_auth_user(auth, &api).await {
+        Ok(value) => value,
+        Err(status_code) => return status_code.into_response(),
+    };
+    match api.get_profile(auth_user.id).await {
+        Ok(user) => (StatusCode::OK, Json(user)).into_response(),
+        Err(e) => report_into_response(e).into_response(),
+    }
+}
+
+async fn get_auth_user(auth: Authorization<Bearer>, api: &Api) -> Result<AuthUser, StatusCode> {
+    let token = match Uuid::from_str(auth.token()) {
+        Ok(token) => token,
+        Err(_) => return Err(StatusCode::UNAUTHORIZED),
+    };
+    let auth_user = match api.get_user(token).await {
+        Ok(Some(auth_user)) => auth_user,
+        _ => return Err(StatusCode::UNAUTHORIZED),
+    };
+    Ok(auth_user)
+}
+
 fn report_into_response(e: eyre::Report) -> (StatusCode, String) {
     error!("Error occurred: {:?}", e);
     match e.downcast::<Error>() {
-        Ok(error) => error.into_response(),
+        Ok(error) => error.into_response_tuple(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "".to_string()),
     }
 }

@@ -1,5 +1,4 @@
 use axum::http::StatusCode;
-use axum::response::IntoResponse;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -24,7 +23,7 @@ impl Error {
         }
     }
 
-    pub fn into_response(self) -> (StatusCode, String) {
+    pub fn into_response_tuple(self) -> (StatusCode, String) {
         (self.status_code(), self.to_string())
     }
 }
