@@ -83,7 +83,6 @@ async fn login(
     }
 }
 
-
 fn report_into_response(e: eyre::Report) -> (StatusCode, String) {
     error!("Error occurred: {:?}", e);
     match e.downcast::<Error>() {
