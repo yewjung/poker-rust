@@ -1,4 +1,5 @@
 use crate::payloads::{LoginRequest, SignupRequest};
+use reqwest::{Error, Response};
 
 pub struct Client {
     pub client: reqwest::Client,
@@ -12,15 +13,13 @@ impl Client {
             client: reqwest::Client::new(),
         }
     }
-    pub async fn signup(&self, request: SignupRequest) -> Result<(), reqwest::Error> {
+    pub async fn signup(&self, request: SignupRequest) -> Result<Response, Error> {
         let url = format!("{}/signup", BASE_URL);
-        self.client.post(url).json(&request).send().await?;
-        Ok(())
+        self.client.post(url).json(&request).send().await
     }
 
-    pub async fn login(&self, request: LoginRequest) -> Result<String, reqwest::Error> {
+    pub async fn login(&self, request: LoginRequest) -> Result<Response, Error> {
         let url = format!("{}/login", BASE_URL);
-        let response = self.client.post(url).json(&request).send().await?;
-        response.text().await
+        self.client.post(url).json(&request).send().await
     }
 }
