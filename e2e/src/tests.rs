@@ -43,12 +43,20 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
     // login with incorrect password
     let response = client
         .login(LoginRequest {
-            email,
+            email: email.clone(),
             password: "wrong_password".to_string(),
         })
         .await
         .tap_err(|e| println!("Error: {:?}", e))?;
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+
+    // test signup with the same email
+    let request = SignupRequest {
+        email,
+        password: "password".to_string(),
+    };
+    let response = client.signup(request).await?;
+    assert_eq!(response.status(), StatusCode::CONFLICT);
     Ok(())
 }

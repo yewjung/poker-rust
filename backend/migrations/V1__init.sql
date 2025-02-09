@@ -3,7 +3,7 @@ CREATE TABLE auth_users (
     id UUID PRIMARY KEY,
     email VARCHAR(255) NOT NULL,
     hashed_password VARCHAR(255) NOT NULL,
-    session_token VARCHAR(255),
+    session_token UUID,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );

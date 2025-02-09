@@ -12,6 +12,7 @@ use refinery::config::Config;
 use sqlx::PgPool;
 
 use crate::domain::auth::{LoginRequest, SignupRequest};
+use crate::error::Error;
 use crate::repository::auth::AuthUserRepository;
 use crate::repository::rooms::RoomRepository;
 use crate::repository::users::UserRepository;
@@ -67,11 +68,8 @@ async fn signup(
     Json(payload): Json<SignupRequest>,
 ) -> impl IntoResponse {
     match api.signup(payload).await {
-        Ok(_) => (StatusCode::CREATED, "User created"),
-        Err(e) => {
-            error!("Error occured: {:?}", e);
-            (StatusCode::INTERNAL_SERVER_ERROR, "")
-        }
+        Ok(_) => (StatusCode::CREATED, "User created".to_string()),
+        Err(e) => report_into_response(e),
     }
 }
 
@@ -81,9 +79,15 @@ async fn login(
 ) -> impl IntoResponse {
     match api.login(payload).await {
         Ok(token) => (StatusCode::OK, token.to_string()),
-        Err(e) => {
-            error!("Error occured: {:?}", e);
-            (StatusCode::UNAUTHORIZED, "".to_string())
-        }
+        Err(e) => report_into_response(e),
+    }
+}
+
+
+fn report_into_response(e: eyre::Report) -> (StatusCode, String) {
+    error!("Error occurred: {:?}", e);
+    match e.downcast::<Error>() {
+        Ok(error) => error.into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "".to_string()),
     }
 }

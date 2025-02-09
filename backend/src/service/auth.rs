@@ -24,7 +24,7 @@ impl AuthService {
     }
 
     pub async fn login(&self, email: String, password: String) -> Result<Uuid> {
-        let user = self.auth_repository.get(email.clone()).await?;
+        let user = self.auth_repository.get(email).await?;
         ensure!(
             verify(password, &user.hashed_password)?,
             Error::InvalidPassword
