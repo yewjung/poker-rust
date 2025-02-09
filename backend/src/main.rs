@@ -12,12 +12,10 @@ use eyre::Result;
 use log::{error, info};
 use poker::Evaluator;
 use refinery::config::Config;
+use socketioxide::{extract::SocketRef, SocketIo};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
-use socketioxide::{
-    extract::SocketRef,
-    SocketIo,
-};
+
 use crate::domain::auth::{AuthUser, LoginRequest, SignupRequest, UpdateProfileRequest};
 use crate::error::Error;
 use crate::repository::auth::AuthUserRepository;
@@ -74,7 +72,6 @@ async fn main() -> Result<()> {
             s.emit("message-back", "Hello World!").ok();
         });
     });
-
 
     // routes
     let router = Router::new()
