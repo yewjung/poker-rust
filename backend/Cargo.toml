@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+async-trait = "0.1.86"
 axum = "0.8.1"
 axum-extra = { version = "0.10.0", features = ["typed-header"] }
 bcrypt = "0.17.0"
@@ -16,13 +17,14 @@ poker = "0.6.4"
 rand = "0.8.4"
 refinery = { version = "0.8.14", features = ["postgres", "tokio-postgres"] }
 serde = { version = "1.0.217", features = ["derive"] }
-serde_json = "1.0.137"
-socketioxide = "0.16.1"
+socketioxide = { version="0.16.1", features = ["extensions"] }
 sqlx = { version = "0.8.3", features = ["postgres", "runtime-tokio-rustls", "chrono", "uuid"] }
+tap = "1.0.1"
 thiserror = "2.0.11"
 tokio = { version = "1.43.0", features = ["macros", "rt-multi-thread"] }
 uuid = { version = "1.12.0", features = ["v4", "serde"] }
 validator = { version = "0.20.0", features = ["derive"] }
+serde_json = "1.0.138"
 
 [dev-dependencies]
 rstest = "0.24.0"

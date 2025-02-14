@@ -17,7 +17,7 @@ impl UserService {
             .await
     }
 
-    pub async fn get(&self, user_id: Uuid) -> Result<User> {
+    pub async fn get(&self, user_id: Uuid) -> Result<Option<User>> {
         self.user_repository.get(user_id).await
     }
 }

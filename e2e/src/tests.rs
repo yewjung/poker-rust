@@ -9,14 +9,8 @@ use crate::domain::{LoginRequest, SignupRequest, UpdateProfileRequest, User};
 #[tokio::test]
 async fn test_signup_and_login() -> Result<(), reqwest::Error> {
     let client = Client::new();
-    // generate a random email
-    let random_string: String = rng()
-        .sample_iter(&Alphanumeric)
-        .take(6)
-        .map(char::from)
-        .collect();
 
-    let email = format!("{}@gmail.com", random_string);
+    let email = random_email();
     let request = SignupRequest {
         email: email.clone(),
         password: "password".to_string(),
@@ -93,5 +87,40 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
             current_room: None,
         }
     );
+    Ok(())
+}
+
+fn random_email() -> String {
+    // generate a random email
+    let random_string: String = rng()
+        .sample_iter(&Alphanumeric)
+        .take(6)
+        .map(char::from)
+        .collect();
+
+    format!("{}@gmail.com", random_string)
+}
+
+#[tokio::test]
+async fn test_join_game() -> eyre::Result<()> {
+    let mut client = Client::new();
+    let email = random_email();
+    client
+        .signup(SignupRequest {
+            email: email.clone(),
+            password: "password".to_string(),
+        })
+        .await?;
+
+    let response = client
+        .login(LoginRequest {
+            email,
+            password: "password".to_string(),
+        })
+        .await?;
+
+    let token = response.text().await?;
+    println!("{token}");
+    client.join_game(token).await?;
     Ok(())
 }

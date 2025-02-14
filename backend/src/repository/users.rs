@@ -48,7 +48,7 @@ impl UserRepository {
         .map_err(Into::into)
     }
 
-    pub async fn get(&self, id: Uuid) -> Result<User> {
+    pub async fn get(&self, id: Uuid) -> Result<Option<User>> {
         sqlx::query_as(
             r#"
             SELECT * FROM users
@@ -56,7 +56,7 @@ impl UserRepository {
             "#,
         )
         .bind(id)
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
     }

@@ -3,6 +3,8 @@ use sqlx::types::Uuid;
 use validator::Validate;
 
 use crate::domain::auth::{AuthUser, LoginRequest, SignupRequest, UpdateProfileRequest};
+use crate::domain::request::JoinGameRequest;
+use crate::domain::room::Room;
 use crate::domain::user::User;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
@@ -45,7 +47,11 @@ impl Api {
         self.auth_service.get_user(token).await
     }
 
-    pub async fn get_profile(&self, user_id: Uuid) -> Result<User> {
+    pub async fn get_profile(&self, user_id: Uuid) -> Result<Option<User>> {
         self.user_service.get(user_id).await
+    }
+
+    pub async fn join_game(&self, user_id: Uuid, request: JoinGameRequest) -> Result<Room> {
+        todo!()
     }
 }

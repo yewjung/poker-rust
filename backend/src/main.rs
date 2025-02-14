@@ -5,19 +5,19 @@ use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
-use axum_extra::headers::authorization::Bearer;
-use axum_extra::headers::Authorization;
-use axum_extra::TypedHeader;
 use eyre::Result;
-use log::{error, info};
+use log::{debug, error, info};
 use poker::Evaluator;
 use refinery::config::Config;
+use socketioxide::extract::{Data, HttpExtension};
 use socketioxide::{extract::SocketRef, SocketIo};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 
-use crate::domain::auth::{AuthUser, LoginRequest, SignupRequest, UpdateProfileRequest};
+use crate::domain::auth::{LoginRequest, SignupRequest, UpdateProfileRequest};
+use crate::domain::request::JoinGameRequest;
 use crate::error::Error;
+use crate::extensions::ExtractUserFromToken;
 use crate::repository::auth::AuthUserRepository;
 use crate::repository::rooms::RoomRepository;
 use crate::repository::users::UserRepository;
@@ -28,6 +28,7 @@ use crate::service::users::UserService;
 
 mod domain;
 mod error;
+mod extensions;
 mod repository;
 mod routes;
 mod service;
@@ -63,15 +64,10 @@ async fn main() -> Result<()> {
     };
 
     // setting up websocket
-    let (layer, io) = SocketIo::new_layer();
+    let (socket_layer, io) = SocketIo::new_layer();
 
     // Register a handler for the default namespace
-    io.ns("/game", |s: SocketRef| {
-        // For each "message" event received, send a "message-back" event with the "Hello World!" event
-        s.on("message", |s: SocketRef| {
-            s.emit("message-back", "Hello World!").ok();
-        });
-    });
+    io.ns("/game", connection_handler);
 
     // routes
     let router = Router::new()
@@ -80,12 +76,11 @@ async fn main() -> Result<()> {
         .route("/login", post(login))
         .route("/profile", patch(update_profile))
         .route("/profile", get(get_profile))
-        .route("/game", get(|| async { "WebSocket endpoint at /game" }))
-        .layer(layer)
+        .layer(socket_layer)
         .layer(Extension(api));
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
-    axum::serve(listener, router).await.unwrap();
+    axum::serve(listener, router).await?;
     Ok(())
 }
 
@@ -110,44 +105,55 @@ async fn login(
 }
 
 async fn update_profile(
-    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    ExtractUserFromToken(user_id): ExtractUserFromToken,
     Extension(api): Extension<Api>,
     Json(payload): Json<UpdateProfileRequest>,
 ) -> impl IntoResponse {
-    let auth_user = match get_auth_user(auth, &api).await {
-        Ok(value) => value,
-        Err(status_code) => return status_code.into_response(),
-    };
-    match api.update_profile(auth_user.id, payload).await {
+    match api.update_profile(user_id, payload).await {
         Ok(user) => (StatusCode::OK, Json(user)).into_response(),
         Err(e) => report_into_response(e).into_response(),
     }
 }
 
 async fn get_profile(
-    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Extension(api): Extension<Api>,
+    ExtractUserFromToken(user_id): ExtractUserFromToken,
 ) -> impl IntoResponse {
-    let auth_user = match get_auth_user(auth, &api).await {
-        Ok(value) => value,
-        Err(status_code) => return status_code.into_response(),
-    };
-    match api.get_profile(auth_user.id).await {
-        Ok(user) => (StatusCode::OK, Json(user)).into_response(),
+    match api.get_profile(user_id).await {
+        Ok(Some(user)) => (StatusCode::OK, Json(user)).into_response(),
+        Ok(None) => StatusCode::NOT_FOUND.into_response(),
         Err(e) => report_into_response(e).into_response(),
     }
 }
 
-async fn get_auth_user(auth: Authorization<Bearer>, api: &Api) -> Result<AuthUser, StatusCode> {
-    let token = match Uuid::from_str(auth.token()) {
-        Ok(token) => token,
-        Err(_) => return Err(StatusCode::UNAUTHORIZED),
+async fn join_game(
+    s: SocketRef,
+    socketioxide::extract::Extension(user_id): socketioxide::extract::Extension<Uuid>,
+    Data(request): Data<JoinGameRequest>,
+    HttpExtension(api): HttpExtension<Api>,
+) {
+    debug!("User {} joined the game", user_id);
+    api.join_game(user_id, request).await;
+}
+
+async fn connection_handler(
+    s: SocketRef,
+    Data(token): Data<Uuid>,
+    HttpExtension(api): HttpExtension<Api>,
+) {
+    let user_id = match api.get_user(token).await {
+        Ok(Some(auth_user)) => auth_user.id,
+        _ => {
+            error!("Failed to get user from token");
+            return;
+        }
     };
-    let auth_user = match api.get_user(token).await {
-        Ok(Some(auth_user)) => auth_user,
-        _ => return Err(StatusCode::UNAUTHORIZED),
-    };
-    Ok(auth_user)
+    debug!("User {} connected", user_id);
+    s.extensions.insert(user_id);
+    s.on("join", join_game);
+    s.on_disconnect(move || {
+        debug!("User {} disconnected", user_id);
+    });
 }
 
 fn report_into_response(e: eyre::Report) -> (StatusCode, String) {

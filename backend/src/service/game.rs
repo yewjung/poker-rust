@@ -79,7 +79,11 @@ impl GameService {
 
     pub async fn join_player(&self, room_id: Uuid, user_id: Uuid, buy_in: i64) -> Result<Room> {
         if let Some(mut room) = self.room_repository.get_mut_lock(room_id) {
-            let mut user = self.user_repository.get(user_id).await?;
+            let mut user = self
+                .user_repository
+                .get(user_id)
+                .await?
+                .wrap_err("User not found")?;
             ensure!(buy_in <= user.balance, "Insufficient balance");
 
             room.join_player(Player::from_user(&user, buy_in as u32))?;
@@ -165,8 +169,7 @@ mod tests {
             Ok(user)
         });
 
-        faux::when!(user_repository.get)
-            .then(|id| users.get(&id).cloned().wrap_err("User not found"));
+        faux::when!(user_repository.get).then(|id| Ok(users.get(&id).cloned()));
 
         faux::when!(user_repository.update_balance).then(|(_, _)| Ok(()));
         user_repository
@@ -179,7 +182,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
-            user_repository: mock_user_repository(),
+            user_repository: Arc::new(mock_user_repository()),
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -369,7 +372,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
-            user_repository: mock_user_repository(),
+            user_repository: Arc::new(mock_user_repository()),
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -435,7 +438,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
-            user_repository: mock_user_repository(),
+            user_repository: Arc::new(mock_user_repository()),
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -502,7 +505,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
-            user_repository: mock_user_repository(),
+            user_repository: Arc::new(mock_user_repository()),
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -569,7 +572,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
-            user_repository: mock_user_repository(),
+            user_repository: Arc::new(mock_user_repository()),
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -617,7 +620,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
-            user_repository: mock_user_repository(),
+            user_repository: Arc::new(mock_user_repository()),
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;

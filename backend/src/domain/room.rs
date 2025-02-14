@@ -577,6 +577,7 @@ mod tests {
     use crate::repository::users::UserRepository;
     use crate::service::game::GameService;
     use poker::{card, cards, Evaluator};
+    use std::sync::Arc;
 
     #[test]
     fn test_add_player() -> Result<()> {
@@ -602,7 +603,7 @@ mod tests {
         let game_service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
-            user_repository: UserRepository::faux(),
+            user_repository: Arc::new(UserRepository::faux()),
         };
         let room = Room {
             id: Uuid::new_v4(),
