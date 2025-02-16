@@ -1,12 +1,15 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use eyre::{bail, ensure, ContextCompat, Report, Result};
 use poker::{box_cards, Card};
+use serde::{Deserialize, Serialize};
+use socketioxide::socket::Sid;
 use sqlx::{FromRow, Type};
 use uuid::Uuid;
 
 use crate::domain::deck::Deck;
 use crate::domain::user::User;
+use crate::error::Error;
 use crate::service::game::ServiceRequiredAction;
 
 #[derive(Debug, Clone, FromRow)]
@@ -18,7 +21,7 @@ pub struct Room {
     pub stage: Stage,
     pub pots: Vec<Pot>,
     pub player_joining_next_round: Vec<Player>,
-    pub player_leaving_next_round: HashMap<Uuid, Player>,
+    pub player_leaving_next_round: HashSet<Uuid>,
     pub player_in_turn: Option<Uuid>,
 }
 
@@ -33,6 +36,7 @@ pub struct Player {
     pub has_folded: bool,
     pub position: Position,
     pub has_taken_turn: bool,
+    pub sid: Sid,
 }
 
 #[derive(Debug, Clone)]
@@ -53,6 +57,7 @@ impl Player {
             has_folded: false,
             position: Position::Normal,
             has_taken_turn: false,
+            sid: Sid::default(),
         }
     }
 
@@ -67,7 +72,7 @@ impl Player {
         Ok(())
     }
 
-    pub fn from_user(user: &User, buy_in: u32) -> Self {
+    pub fn from_user(user: &User, buy_in: u32, sid: Sid) -> Self {
         Player {
             id: user.id,
             name: user.name.clone(),
@@ -77,11 +82,12 @@ impl Player {
             has_folded: false,
             position: Position::Normal,
             has_taken_turn: false,
+            sid,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Type)]
+#[derive(Debug, Clone, PartialEq, Type, Serialize, Deserialize)]
 #[sqlx(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Stage {
     NotEnoughPlayers,
@@ -92,7 +98,7 @@ pub enum Stage {
     Showdown,
 }
 
-#[derive(Debug, Eq, Hash, PartialEq, Clone, Ord, PartialOrd)]
+#[derive(Debug, Eq, Hash, PartialEq, Clone, Ord, PartialOrd, Serialize, Deserialize)]
 pub enum Position {
     Normal,
     BigBlind,
@@ -123,7 +129,7 @@ impl Room {
             stage: Stage::NotEnoughPlayers,
             pots: vec![],
             player_joining_next_round: Vec::new(),
-            player_leaving_next_round: HashMap::new(),
+            player_leaving_next_round: Default::default(),
             player_in_turn: None,
         }
     }
@@ -156,15 +162,37 @@ impl Room {
             })
     }
 
-    pub fn join_player(&mut self, player: Player) -> Result<()> {
+    pub fn join_player(&mut self, player: Player) -> Result<ServiceRequiredAction> {
+        if !self.is_joinable() {
+            bail!(Error::RoomIsFull);
+        }
         match self.stage {
             Stage::NotEnoughPlayers => {
                 self.players.push(player);
-                self.proceed()?;
+                self.proceed()
             }
-            _ => self.player_joining_next_round.push(player),
-        };
-        Ok(())
+            _ => {
+                self.player_joining_next_round.push(player);
+                Ok(ServiceRequiredAction::NoAction)
+            }
+        }
+    }
+
+    pub fn leave_player(&mut self, player_id: Uuid) {
+        if self.players.iter().any(|p| p.id == player_id) {
+            self.player_leaving_next_round.insert(player_id);
+        }
+        self.player_joining_next_round.retain(|p| p.id != player_id);
+    }
+
+    fn is_joinable(&self) -> bool {
+        let count = self
+            .players
+            .iter()
+            .chain(self.player_joining_next_round.iter())
+            .filter(|p| p.chips > 0)
+            .count();
+        count - self.player_leaving_next_round.len() < 10
     }
 
     pub fn start_game(&mut self) -> Result<()> {
@@ -224,8 +252,8 @@ impl Room {
     fn seat_players(&mut self) {
         // Remove players who left the game
         self.players
-            .retain(|p| !self.player_leaving_next_round.contains_key(&p.id));
-        // Remove players who has no chips
+            .retain(|p| !self.player_leaving_next_round.contains(&p.id));
+        // Remove players who have no chips
         self.players.retain(|p| p.chips > 0);
         self.player_leaving_next_round.clear();
         // Add players who joined the game
@@ -448,6 +476,7 @@ impl Room {
             Stage::NotEnoughPlayers => {}
             Stage::PreFlop => {
                 self.start_game()?;
+                return Ok(ServiceRequiredAction::PlayerReceiveCards);
             }
             Stage::Flop => {
                 self.deal_community_card(Stage::Flop)?;
@@ -577,6 +606,8 @@ mod tests {
     use crate::repository::users::UserRepository;
     use crate::service::game::GameService;
     use poker::{card, cards, Evaluator};
+    use socketioxide::SocketIo;
+    use std::str::FromStr;
     use std::sync::Arc;
 
     #[test]
@@ -600,10 +631,12 @@ mod tests {
 
     #[test]
     fn test_winners() -> Result<()> {
+        let (_, io) = SocketIo::new_layer();
         let game_service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
             user_repository: Arc::new(UserRepository::faux()),
+            io,
         };
         let room = Room {
             id: Uuid::new_v4(),
@@ -617,6 +650,7 @@ mod tests {
                     has_folded: false,
                     position: Position::DealerAndSmallBlind,
                     has_taken_turn: true,
+                    sid: Sid::from_str("AA9AAA0AAzAAAAHs")?,
                 },
                 Player {
                     id: Uuid::from_u128(2),
@@ -627,6 +661,7 @@ mod tests {
                     has_folded: false,
                     position: Position::BigBlind,
                     has_taken_turn: true,
+                    sid: Sid::from_str("AA9AAA0AAzAAAAHB")?,
                 },
             ],
             deck: Deck::new(),
@@ -641,8 +676,8 @@ mod tests {
             player_in_turn: None,
         };
 
-        let winners = game_service.find_winners(&room)?;
-        let (_, winner_ids) = winners.first().wrap_err("No winners")?;
+        let game_result = game_service.find_winners(&room)?;
+        let (_, winner_ids) = game_result.winners.first().wrap_err("No winners")?;
         let mut winners: Vec<_> = room
             .players
             .iter()
@@ -662,6 +697,7 @@ mod tests {
                     has_folded: false,
                     position: Position::DealerAndSmallBlind,
                     has_taken_turn: true,
+                    sid: Sid::from_str("AA9AAA0AAzAAAAHs")?
                 },
                 &Player {
                     id: Uuid::from_u128(2),
@@ -672,6 +708,7 @@ mod tests {
                     has_folded: false,
                     position: Position::BigBlind,
                     has_taken_turn: true,
+                    sid: Sid::from_str("AA9AAA0AAzAAAAHB")?
                 },
             ]
         );
@@ -811,6 +848,7 @@ mod tests {
                     has_folded: alice_has_folded,
                     position: Position::DealerAndSmallBlind,
                     has_taken_turn: alice_has_taken_turn,
+                    sid: Sid::default(),
                 },
                 Player {
                     id: Uuid::from_u128(2),
@@ -821,6 +859,7 @@ mod tests {
                     has_folded: bob_has_folded,
                     position: Position::BigBlind,
                     has_taken_turn: bob_has_taken_turn,
+                    sid: Sid::default(),
                 },
             ],
             deck: Deck::new(),
@@ -831,7 +870,7 @@ mod tests {
                 players: HashSet::from([Uuid::from_u128(1), Uuid::from_u128(2)]),
             }],
             player_joining_next_round: Vec::new(),
-            player_leaving_next_round: HashMap::new(),
+            player_leaving_next_round: Default::default(),
             player_in_turn: if player_in_turn == "Alice" {
                 Some(Uuid::from_u128(1))
             } else {

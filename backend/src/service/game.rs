@@ -1,12 +1,19 @@
+use std::cmp::PartialEq;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use eyre::{ensure, ContextCompat, Result};
+use dashmap::mapref::one::RefMut;
+use eyre::{bail, ensure, ContextCompat, Result};
 use poker::{Eval, Evaluator};
+use serde::Serialize;
+use socketioxide::socket::Sid;
+use socketioxide::SocketIo;
 use uuid::Uuid;
 
-use crate::domain::room::{Action, Player, Room};
+use crate::domain::room::{Action, Hand, Player, Room};
+use crate::domain::state::{PlayerHand, SharedGameState, Timestamped};
 use crate::domain::user::User;
+use crate::error::Error;
 use crate::repository::rooms::RoomRepository;
 use crate::repository::users::UserRepository;
 
@@ -15,13 +22,19 @@ pub struct GameService {
     pub evaluator: Evaluator,
     pub room_repository: RoomRepository,
     pub user_repository: Arc<UserRepository>,
+    pub io: SocketIo,
+}
+
+pub struct GameResult {
+    pub hands_eval: HashMap<Uuid, Eval>,
+    pub winners: Vec<(u32, HashSet<Uuid>)>,
 }
 
 impl GameService {
-    pub fn find_winners(&self, room: &Room) -> Result<Vec<(u32, HashSet<Uuid>)>> {
+    pub fn find_winners(&self, room: &Room) -> Result<GameResult> {
         ensure!(room.is_showdown(), "Game is not in the showdown stage yet");
 
-        let hands = room
+        let hands_eval = room
             .players_cards()
             .into_iter()
             .map(|(k, v)| Ok((k, self.evaluator.evaluate(v)?)))
@@ -32,12 +45,20 @@ impl GameService {
             let player_hands: Vec<_> = pot
                 .players
                 .iter()
-                .map(|player_id| (*player_id, *hands.get(player_id).unwrap_or(&Eval::WORST)))
+                .map(|player_id| {
+                    (
+                        *player_id,
+                        *hands_eval.get(player_id).unwrap_or(&Eval::WORST),
+                    )
+                })
                 .collect();
             let best_hands = Self::all_best_hands(&player_hands);
             winners.push((pot.amount, best_hands));
         }
-        Ok(winners)
+        Ok(GameResult {
+            hands_eval,
+            winners,
+        })
     }
 
     fn all_best_hands(v: &[(Uuid, Eval)]) -> HashSet<Uuid> {
@@ -62,57 +83,144 @@ impl GameService {
     }
 
     // this function takes action from a player
-    pub fn take_action(&self, room_id: Uuid, player_id: Uuid, action: Action) -> Result<Room> {
+    pub async fn take_action(
+        &self,
+        room_id: Uuid,
+        player_id: Uuid,
+        action: Action,
+    ) -> Result<Room> {
         if let Some(mut room) = self.room_repository.get_mut_lock(room_id) {
             let action_required = room.take_action(player_id, action)?;
-            match action_required {
-                ServiceRequiredAction::NoAction => {}
-                ServiceRequiredAction::FindWinners => {
-                    let winners = self.find_winners(&room)?;
-                    room.split_pot(winners)?;
-                    room.proceed()?;
-                }
-            }
+            self.service_action_required(action_required, room).await?;
+        } else {
+            bail!(Error::InvalidRoomId);
         }
-        self.room_repository.get(room_id).wrap_err("Room not found")
+        self.room_repository
+            .get(room_id)
+            .wrap_err(Error::InvalidRoomId)
     }
 
-    pub async fn join_player(&self, room_id: Uuid, user_id: Uuid, buy_in: i64) -> Result<Room> {
+    async fn emit_to_room<T: ?Sized + Serialize>(&self, room: String, event: &str, data: &T) {
+        if let Some(operator) = self.io.of("/game") {
+            let _ = operator.to(room).emit(event, data).await;
+        }
+    }
+
+    fn emit_to_socket<T: ?Sized + Serialize>(&self, sid: Sid, event: &str, data: &T) {
+        if let Some(operator) = self.io.of("/game") {
+            if let Some(socket) = operator.get_socket(sid) {
+                let _ = socket.emit(event, data);
+            }
+        }
+    }
+
+    pub async fn join_player(
+        &self,
+        room_id: Uuid,
+        user_id: Uuid,
+        buy_in: i64,
+        sid: Sid,
+    ) -> Result<Room> {
         if let Some(mut room) = self.room_repository.get_mut_lock(room_id) {
             let mut user = self
                 .user_repository
                 .get(user_id)
                 .await?
                 .wrap_err("User not found")?;
-            ensure!(buy_in <= user.balance, "Insufficient balance");
+            ensure!(buy_in <= user.balance, Error::InsufficientBalance);
 
-            room.join_player(Player::from_user(&user, buy_in as u32))?;
+            let action_required = room.join_player(Player::from_user(&user, buy_in as u32, sid))?;
+            self.service_action_required(action_required, room).await?;
             user.balance -= buy_in;
             self.user_repository
-                .update_balance(user_id, user.balance)
+                .update_balance_and_room(user_id, user.balance, room_id)
                 .await?;
         }
-        self.room_repository.get(room_id).wrap_err("Room not found")
+        self.room_repository
+            .get(room_id)
+            .wrap_err(Error::InvalidRoomId)
     }
 
     pub async fn create_user(&self, name: String, balance: i64) -> Result<User> {
         self.user_repository.create_user(name, balance).await
     }
+
+    pub async fn leave_player(&self, user_id: Uuid) -> Result<()> {
+        if let Some(mut room) = self
+            .user_repository
+            .get(user_id)
+            .await?
+            .and_then(|user| user.current_room)
+            .and_then(|room_id| self.room_repository.get_mut_lock(room_id))
+        {
+            room.leave_player(user_id)
+        }
+        Ok(())
+    }
+
+    // this function takes the ServiceRequiredAction enum and perform the corresponding action
+    async fn service_action_required(
+        &self,
+        action: ServiceRequiredAction,
+        mut room: RefMut<'_, Uuid, Room>,
+    ) -> Result<()> {
+        let room_id = room.id.to_string();
+
+        match action {
+            ServiceRequiredAction::NoAction => {
+                // emit game state
+                let game_state = SharedGameState::from_room(room.clone(), false);
+                self.emit_to_room(room_id, "room", &Timestamped::new(game_state))
+                    .await;
+                Ok(())
+            }
+            ServiceRequiredAction::FindWinners => {
+                let GameResult {
+                    hands_eval,
+                    winners,
+                } = self.find_winners(&room)?;
+                // emit game state
+                let game_state =
+                    SharedGameState::from_room(room.clone(), true).with_eval(hands_eval);
+                self.emit_to_room(room_id, "room", &Timestamped::new(game_state))
+                    .await;
+
+                room.split_pot(winners)?;
+                Box::pin(self.service_action_required(room.proceed()?, room)).await
+            }
+            ServiceRequiredAction::PlayerReceiveCards => {
+                // emit game state
+                let game_state = SharedGameState::from_room(room.clone(), false);
+                self.emit_to_room(room_id, "room", &Timestamped::new(game_state))
+                    .await;
+
+                for player in room.players.iter() {
+                    if let Some(Hand(cards)) = player.hand {
+                        let hand: PlayerHand = cards.into();
+                        self.emit_to_socket(player.sid, "hand", &Timestamped::new(hand));
+                    }
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ServiceRequiredAction {
     NoAction,
     FindWinners,
+    PlayerReceiveCards,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::room::{Position, Stage};
-    use eyre::{bail, ContextCompat};
+    use eyre::bail;
     use lazy_static::lazy_static;
     use poker::cards;
+    use socketioxide::extract::SocketRef;
 
     lazy_static! {
         static ref users: HashMap<Uuid, User> = HashMap::from([
@@ -171,18 +279,20 @@ mod tests {
 
         faux::when!(user_repository.get).then(|id| Ok(users.get(&id).cloned()));
 
-        faux::when!(user_repository.update_balance).then(|(_, _)| Ok(()));
+        faux::when!(user_repository.update_balance_and_room).then(|(_, _, _)| Ok(()));
         user_repository
     }
 
     #[tokio::test]
     async fn test_whole_game_flow() -> Result<()> {
         // setup
-
+        let (_, io) = SocketIo::new_layer();
+        io.ns("/game", |_: SocketRef| async {});
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
             user_repository: Arc::new(mock_user_repository()),
+            io,
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -192,9 +302,13 @@ mod tests {
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
 
         // join players
-        let room = service.join_player(room.id, alice.id, 500).await?;
+        let room = service
+            .join_player(room.id, alice.id, 500, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
-        let room = service.join_player(room.id, bob.id, 500).await?;
+        let room = service
+            .join_player(room.id, bob.id, 500, Sid::default())
+            .await?;
 
         assert_eq!(room.stage, Stage::PreFlop);
         assert_eq!(room.player_in_turn, Some(alice.id));
@@ -229,7 +343,7 @@ mod tests {
         assert_eq!(dealer_and_small_blind.bet, 1);
 
         // bob takes action, but not bob's turn
-        let bob_action_result = service.take_action(room.id, bob.id, Action::Check);
+        let bob_action_result = service.take_action(room.id, bob.id, Action::Check).await;
         assert_eq!(
             bob_action_result.unwrap_err().to_string(),
             "Not player's turn".to_string()
@@ -238,15 +352,16 @@ mod tests {
         // alice takes invalid actions
         let error_message = service
             .take_action(room.id, alice.id, Action::Check)
+            .await
             .unwrap_err()
             .to_string();
         assert_eq!(error_message, "Player must call or raise".to_string());
 
         // alice takes valid action
-        let room = service.take_action(room.id, alice.id, Action::Call)?;
+        let room = service.take_action(room.id, alice.id, Action::Call).await?;
         assert_eq!(room.player_in_turn, Some(bob.id));
         // bob checks
-        let room = service.take_action(room.id, bob.id, Action::Check)?;
+        let room = service.take_action(room.id, bob.id, Action::Check).await?;
 
         // flop
         assert_eq!(room.stage, Stage::Flop);
@@ -264,7 +379,7 @@ mod tests {
         assert!(!alice.has_taken_turn);
         assert!(!bob.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(bob.id));
-        let room = service.take_action(room.id, bob.id, Action::Check)?;
+        let room = service.take_action(room.id, bob.id, Action::Check).await?;
         let alice = room
             .players
             .iter()
@@ -278,7 +393,9 @@ mod tests {
         assert!(bob.has_taken_turn);
         assert!(!alice.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(alice.id));
-        let room = service.take_action(room.id, alice.id, Action::Raise(10))?;
+        let room = service
+            .take_action(room.id, alice.id, Action::Raise(10))
+            .await?;
         let alice = room
             .players
             .iter()
@@ -294,12 +411,13 @@ mod tests {
         // bob takes invalid action by raising insufficient amount
         let error_message = service
             .take_action(room.id, bob.id, Action::Raise(1))
+            .await
             .unwrap_err()
             .to_string();
         assert_eq!(error_message, "Invalid raise amount".to_string());
 
         // bob calls
-        let room = service.take_action(room.id, bob.id, Action::Call)?;
+        let room = service.take_action(room.id, bob.id, Action::Call).await?;
 
         // turn
         assert_eq!(room.stage, Stage::Turn);
@@ -318,8 +436,10 @@ mod tests {
         assert!(!bob.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(bob.id));
 
-        let room = service.take_action(room.id, bob.id, Action::Check)?;
-        let room = service.take_action(room.id, alice.id, Action::Check)?;
+        let room = service.take_action(room.id, bob.id, Action::Check).await?;
+        let room = service
+            .take_action(room.id, alice.id, Action::Check)
+            .await?;
 
         // river
         assert_eq!(room.stage, Stage::River);
@@ -339,8 +459,10 @@ mod tests {
         assert!(!bob.has_taken_turn);
         assert_eq!(room.player_in_turn, Some(bob.id));
 
-        let room = service.take_action(room.id, bob.id, Action::Check)?;
-        let room = service.take_action(room.id, alice.id, Action::Check)?;
+        let room = service.take_action(room.id, bob.id, Action::Check).await?;
+        let room = service
+            .take_action(room.id, alice.id, Action::Check)
+            .await?;
 
         // game restarts to preFlop
         assert_eq!(room.stage, Stage::PreFlop);
@@ -369,10 +491,13 @@ mod tests {
     #[tokio::test]
     async fn test_fold_and_raise() -> Result<()> {
         // setup
+        let (_, io) = SocketIo::new_layer();
+        io.ns("/game", |_: SocketRef| async {});
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
             user_repository: Arc::new(mock_user_repository()),
+            io,
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -382,15 +507,23 @@ mod tests {
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
 
         // join players
-        let room = service.join_player(room.id, alice.id, 500).await?;
+        let room = service
+            .join_player(room.id, alice.id, 500, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
-        let room = service.join_player(room.id, bob.id, 500).await?;
+        let room = service
+            .join_player(room.id, bob.id, 500, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::PreFlop);
 
         // alice takes action
-        let room = service.take_action(room.id, alice.id, Action::Raise(10))?;
-        let room = service.take_action(room.id, bob.id, Action::Raise(20))?;
-        let room = service.take_action(room.id, alice.id, Action::Fold)?;
+        let room = service
+            .take_action(room.id, alice.id, Action::Raise(10))
+            .await?;
+        let room = service
+            .take_action(room.id, bob.id, Action::Raise(20))
+            .await?;
+        let room = service.take_action(room.id, alice.id, Action::Fold).await?;
         assert_eq!(room.stage, Stage::PreFlop);
         let bob = room
             .players
@@ -435,10 +568,13 @@ mod tests {
     #[tokio::test]
     async fn test_skip_player_with_zero_chips() -> Result<()> {
         // setup
+        let (_, io) = SocketIo::new_layer();
+        io.ns("/game", |_: SocketRef| async {});
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
             user_repository: Arc::new(mock_user_repository()),
+            io,
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -448,9 +584,13 @@ mod tests {
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
 
         // join players
-        let room = service.join_player(room.id, alice.id, 500).await?;
+        let room = service
+            .join_player(room.id, alice.id, 500, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
-        let room = service.join_player(room.id, bob.id, 1000).await?;
+        let room = service
+            .join_player(room.id, bob.id, 1000, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::PreFlop);
 
         // assert initial bets
@@ -473,7 +613,9 @@ mod tests {
         assert!(!bob.has_taken_turn);
 
         // alice takes action
-        let room = service.take_action(room.id, alice.id, Action::AllIn)?;
+        let room = service
+            .take_action(room.id, alice.id, Action::AllIn)
+            .await?;
         assert_eq!(room.player_in_turn, Some(bob.id));
         let alice = room
             .players
@@ -482,7 +624,7 @@ mod tests {
             .expect("Alice not found");
         assert_eq!(alice.chips, 0);
         assert_eq!(room.stage, Stage::PreFlop);
-        let room = service.take_action(room.id, bob.id, Action::Call)?;
+        let room = service.take_action(room.id, bob.id, Action::Call).await?;
         let bob = room
             .players
             .iter()
@@ -502,10 +644,13 @@ mod tests {
     #[tokio::test]
     async fn test_proceed_when_alice_reraise_bob() -> Result<()> {
         // setup
+        let (_, io) = SocketIo::new_layer();
+        io.ns("/game", |_: SocketRef| async {});
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
             user_repository: Arc::new(mock_user_repository()),
+            io,
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -515,9 +660,13 @@ mod tests {
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
 
         // join players
-        let room = service.join_player(room.id, alice.id, 500).await?;
+        let room = service
+            .join_player(room.id, alice.id, 500, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
-        let room = service.join_player(room.id, bob.id, 1000).await?;
+        let room = service
+            .join_player(room.id, bob.id, 1000, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::PreFlop);
 
         // assert initial bets
@@ -536,11 +685,17 @@ mod tests {
         assert_eq!(alice.chips, 499);
 
         // alice takes action
-        let room = service.take_action(room.id, alice.id, Action::Raise(10))?;
+        let room = service
+            .take_action(room.id, alice.id, Action::Raise(10))
+            .await?;
         assert_eq!(room.player_in_turn, Some(bob.id));
-        let room = service.take_action(room.id, bob.id, Action::Raise(20))?;
+        let room = service
+            .take_action(room.id, bob.id, Action::Raise(20))
+            .await?;
         assert_eq!(room.player_in_turn, Some(alice.id));
-        let room = service.take_action(room.id, alice.id, Action::AllIn)?;
+        let room = service
+            .take_action(room.id, alice.id, Action::AllIn)
+            .await?;
         assert_eq!(room.player_in_turn, Some(bob.id));
         let alice = room
             .players
@@ -549,7 +704,7 @@ mod tests {
             .expect("Alice not found");
         assert_eq!(alice.chips, 0);
         assert_eq!(room.stage, Stage::PreFlop);
-        let room = service.take_action(room.id, bob.id, Action::Call)?;
+        let room = service.take_action(room.id, bob.id, Action::Call).await?;
         let bob = room
             .players
             .iter()
@@ -569,10 +724,13 @@ mod tests {
     #[tokio::test]
     async fn test_bob_all_in_during_flop() -> Result<()> {
         // setup
+        let (_, io) = SocketIo::new_layer();
+        io.ns("/game", |_: SocketRef| async {});
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
             user_repository: Arc::new(mock_user_repository()),
+            io,
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -582,25 +740,32 @@ mod tests {
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
 
         // join players
-        let room = service.join_player(room.id, alice.id, 500).await?;
+        let room = service
+            .join_player(room.id, alice.id, 500, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::NotEnoughPlayers);
-        let room = service.join_player(room.id, bob.id, 1000).await?;
+        let room = service
+            .join_player(room.id, bob.id, 1000, Sid::default())
+            .await?;
         assert_eq!(room.stage, Stage::PreFlop);
 
         // alice takes action
-        let room = service.take_action(room.id, alice.id, Action::Call)?;
+        let room = service.take_action(room.id, alice.id, Action::Call).await?;
         assert_eq!(room.player_in_turn, Some(bob.id));
-        let room = service.take_action(room.id, bob.id, Action::AllIn)?;
+        let room = service.take_action(room.id, bob.id, Action::AllIn).await?;
         assert_eq!(room.player_in_turn, Some(alice.id));
         let error_message = service
             .take_action(room.id, alice.id, Action::Call)
+            .await
             .unwrap_err()
             .to_string();
         assert_eq!(
             error_message,
             "Alice does not have enough chips".to_string()
         );
-        let room = service.take_action(room.id, alice.id, Action::AllIn)?;
+        let room = service
+            .take_action(room.id, alice.id, Action::AllIn)
+            .await?;
         if room.players.iter().any(|p| p.chips == 1500) {
             // someone won
             assert_eq!(room.players.len(), 1);
@@ -617,10 +782,13 @@ mod tests {
     #[tokio::test]
     async fn test_3_players() -> Result<()> {
         // setup
+        let (_, io) = SocketIo::new_layer();
+        io.ns("/game", |_: SocketRef| async {});
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
             user_repository: Arc::new(mock_user_repository()),
+            io,
         };
         let alice = service.create_user("Alice".to_string(), 1000).await?;
         let bob = service.create_user("Bob".to_string(), 1000).await?;
@@ -631,27 +799,41 @@ mod tests {
         let room = service.create_room()?;
 
         // join players
-        let room = service.join_player(room.id, alice.id, 500).await?;
-        let room = service.join_player(room.id, bob.id, 1000).await?;
-        let room = service.join_player(room.id, charlie.id, 1500).await?;
-        let room = service.join_player(room.id, dennis.id, 2000).await?;
+        let room = service
+            .join_player(room.id, alice.id, 500, Sid::default())
+            .await?;
+        let room = service
+            .join_player(room.id, bob.id, 1000, Sid::default())
+            .await?;
+        let room = service
+            .join_player(room.id, charlie.id, 1500, Sid::default())
+            .await?;
+        let room = service
+            .join_player(room.id, dennis.id, 2000, Sid::default())
+            .await?;
         assert_eq!(room.player_joining_next_round.len(), 2);
 
         // preflop
-        service.take_action(room.id, alice.id, Action::Call)?;
-        service.take_action(room.id, bob.id, Action::Check)?;
+        service.take_action(room.id, alice.id, Action::Call).await?;
+        service.take_action(room.id, bob.id, Action::Check).await?;
 
         // flop
-        service.take_action(room.id, bob.id, Action::Check)?;
-        service.take_action(room.id, alice.id, Action::Check)?;
+        service.take_action(room.id, bob.id, Action::Check).await?;
+        service
+            .take_action(room.id, alice.id, Action::Check)
+            .await?;
 
         // turn
-        service.take_action(room.id, bob.id, Action::Check)?;
-        service.take_action(room.id, alice.id, Action::Check)?;
+        service.take_action(room.id, bob.id, Action::Check).await?;
+        service
+            .take_action(room.id, alice.id, Action::Check)
+            .await?;
 
         // river
-        service.take_action(room.id, bob.id, Action::Check)?;
-        let room = service.take_action(room.id, alice.id, Action::Check)?;
+        service.take_action(room.id, bob.id, Action::Check).await?;
+        let room = service
+            .take_action(room.id, alice.id, Action::Check)
+            .await?;
 
         // game restarts to preFlop
         assert_eq!(room.stage, Stage::PreFlop);
@@ -661,33 +843,51 @@ mod tests {
         // preflop
         assert_eq!(room.player_in_turn, Some(alice.id));
 
-        service.take_action(room.id, alice.id, Action::Call)?;
-        service.take_action(room.id, bob.id, Action::Call)?;
-        service.take_action(room.id, charlie.id, Action::Call)?;
-        let room = service.take_action(room.id, dennis.id, Action::Check)?;
+        service.take_action(room.id, alice.id, Action::Call).await?;
+        service.take_action(room.id, bob.id, Action::Call).await?;
+        service
+            .take_action(room.id, charlie.id, Action::Call)
+            .await?;
+        let room = service
+            .take_action(room.id, dennis.id, Action::Check)
+            .await?;
         assert_eq!(room.stage, Stage::Flop);
 
         // flop
         // print all chips of players
         assert_eq!(room.player_in_turn, Some(charlie.id));
-        service.take_action(room.id, charlie.id, Action::Raise(510))?;
-        service.take_action(room.id, dennis.id, Action::Call)?;
-        service.take_action(room.id, alice.id, Action::AllIn)?;
-        let room = service.take_action(room.id, bob.id, Action::Call)?;
+        service
+            .take_action(room.id, charlie.id, Action::Raise(510))
+            .await?;
+        service
+            .take_action(room.id, dennis.id, Action::Call)
+            .await?;
+        service
+            .take_action(room.id, alice.id, Action::AllIn)
+            .await?;
+        let room = service.take_action(room.id, bob.id, Action::Call).await?;
 
         // turn
         assert_eq!(room.stage, Stage::Turn);
         assert_eq!(room.player_in_turn, Some(charlie.id));
-        service.take_action(room.id, charlie.id, Action::Raise(510))?;
-        service.take_action(room.id, dennis.id, Action::Call)?;
-        let room = service.take_action(room.id, bob.id, Action::AllIn)?;
+        service
+            .take_action(room.id, charlie.id, Action::Raise(510))
+            .await?;
+        service
+            .take_action(room.id, dennis.id, Action::Call)
+            .await?;
+        let room = service.take_action(room.id, bob.id, Action::AllIn).await?;
 
         // river
         assert_eq!(room.stage, Stage::River);
         assert_eq!(room.player_in_turn, Some(charlie.id));
-        let room = service.take_action(room.id, charlie.id, Action::AllIn)?;
+        let room = service
+            .take_action(room.id, charlie.id, Action::AllIn)
+            .await?;
         assert_eq!(room.stage, Stage::River);
-        let room = service.take_action(room.id, dennis.id, Action::Call)?;
+        let room = service
+            .take_action(room.id, dennis.id, Action::Call)
+            .await?;
 
         // game resets to preFlop or NotEnoughPlayers
         if room.players.len() == 1 {

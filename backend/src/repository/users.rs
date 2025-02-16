@@ -77,15 +77,21 @@ impl UserRepository {
         Ok(())
     }
 
-    pub async fn update_balance(&self, id: Uuid, balance: i64) -> Result<()> {
+    pub async fn update_balance_and_room(
+        &self,
+        id: Uuid,
+        balance: i64,
+        room_id: Uuid,
+    ) -> Result<()> {
         sqlx::query(
             r#"
             UPDATE users
-            SET balance = $1
-            WHERE id = $2
+            SET balance = $1, current_room = $2
+            WHERE id = $3
             "#,
         )
         .bind(balance)
+        .bind(room_id)
         .bind(id)
         .execute(&self.pool)
         .await?;

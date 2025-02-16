@@ -1,4 +1,5 @@
 use eyre::Result;
+use socketioxide::socket::Sid;
 use sqlx::types::Uuid;
 use validator::Validate;
 
@@ -51,7 +52,14 @@ impl Api {
         self.user_service.get(user_id).await
     }
 
-    pub async fn join_game(&self, user_id: Uuid, request: JoinGameRequest) -> Result<Room> {
-        todo!()
+    pub async fn join_game(
+        &self,
+        user_id: Uuid,
+        request: JoinGameRequest,
+        sid: Sid,
+    ) -> Result<Room> {
+        self.game_service
+            .join_player(user_id, request.room_id, request.buy_in, sid)
+            .await
     }
 }

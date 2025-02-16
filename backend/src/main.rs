@@ -9,6 +9,7 @@ use eyre::Result;
 use log::{debug, error, info};
 use poker::Evaluator;
 use refinery::config::Config;
+use socketioxide::extract::Extension as SocketExtension;
 use socketioxide::extract::{Data, HttpExtension};
 use socketioxide::{extract::SocketRef, SocketIo};
 use sqlx::types::Uuid;
@@ -52,22 +53,23 @@ async fn main() -> Result<()> {
     let user_repository = Arc::new(UserRepository::new(pool.clone()));
     let auth_repository = AuthUserRepository::new(pool.clone());
 
+    // setting up websocket
+    let (socket_layer, io) = SocketIo::new_layer();
+
+    // Register a handler for the default namespace
+    io.ns("/game", connection_handler);
+
     // API
     let api = Api {
         game_service: GameService {
             evaluator: Evaluator::new(),
             room_repository,
             user_repository: user_repository.clone(),
+            io,
         },
         auth_service: AuthService { auth_repository },
         user_service: UserService { user_repository },
     };
-
-    // setting up websocket
-    let (socket_layer, io) = SocketIo::new_layer();
-
-    // Register a handler for the default namespace
-    io.ns("/game", connection_handler);
 
     // routes
     let router = Router::new()
@@ -128,12 +130,42 @@ async fn get_profile(
 
 async fn join_game(
     s: SocketRef,
-    socketioxide::extract::Extension(user_id): socketioxide::extract::Extension<Uuid>,
+    SocketExtension(user_id): SocketExtension<Uuid>,
     Data(request): Data<JoinGameRequest>,
     HttpExtension(api): HttpExtension<Api>,
 ) {
-    debug!("User {} joined the game", user_id);
-    api.join_game(user_id, request).await;
+    match api.join_game(user_id, request, s.id).await {
+        Ok(room) => {
+            debug!("User {} joined room {}", user_id, room.id);
+            s.join(room.id.to_string());
+        }
+        Err(e) => {
+            let (_, message) = report_into_response(e);
+            let _ = s.emit("error", &message);
+        }
+    }
+}
+
+async fn leave_game(
+    s: SocketRef,
+    SocketExtension(user_id): SocketExtension<Uuid>,
+    HttpExtension(api): HttpExtension<Api>,
+) {
+    match api.game_service.leave_player(user_id).await {
+        Ok(_) => debug!("User {} left the room", user_id),
+        Err(e) => {
+            let (_, message) = report_into_response(e);
+            let _ = s.emit("error", &message);
+        }
+    }
+}
+async fn handle_disconnect(
+    s: SocketRef,
+    SocketExtension(user_id): SocketExtension<Uuid>,
+    HttpExtension(api): HttpExtension<Api>,
+) {
+    debug!("User {} disconnected", user_id);
+    leave_game(s, SocketExtension(user_id), HttpExtension(api)).await;
 }
 
 async fn connection_handler(
@@ -151,9 +183,8 @@ async fn connection_handler(
     debug!("User {} connected", user_id);
     s.extensions.insert(user_id);
     s.on("join", join_game);
-    s.on_disconnect(move || {
-        debug!("User {} disconnected", user_id);
-    });
+    s.on("leave", leave_game);
+    s.on_disconnect(handle_disconnect);
 }
 
 fn report_into_response(e: eyre::Report) -> (StatusCode, String) {

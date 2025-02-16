@@ -11,6 +11,12 @@ pub enum Error {
     EmailAlreadyExists,
     #[error("Invalid password")]
     InvalidPassword,
+    #[error("Insufficient balance")]
+    InsufficientBalance,
+    #[error("Room is full")]
+    RoomIsFull,
+    #[error("Invalid room id")]
+    InvalidRoomId,
 }
 
 impl Error {
@@ -20,6 +26,9 @@ impl Error {
             Error::InvalidPosition(_) => StatusCode::BAD_REQUEST,
             Error::EmailAlreadyExists => StatusCode::CONFLICT,
             Error::InvalidPassword => StatusCode::UNAUTHORIZED,
+            Error::InsufficientBalance => StatusCode::BAD_REQUEST,
+            Error::RoomIsFull => StatusCode::BAD_REQUEST,
+            Error::InvalidRoomId => StatusCode::NOT_FOUND,
         }
     }
 
