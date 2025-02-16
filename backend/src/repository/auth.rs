@@ -1,5 +1,4 @@
-use bcrypt::{hash, DEFAULT_COST};
-use eyre::{ContextCompat, Result};
+use eyre::Result;
 use sqlx::types::Uuid;
 use sqlx::{PgPool, Row};
 
@@ -74,7 +73,7 @@ impl AuthUserRepository {
         Ok(())
     }
 
-    pub async fn get_by_token(&self, token: Uuid) -> Result<Option<AuthUser>> {
+    pub async fn get_by_session_token(&self, token: Uuid) -> Result<Option<AuthUser>> {
         sqlx::query_as(
             r#"
             SELECT * FROM auth_users

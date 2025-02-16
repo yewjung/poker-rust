@@ -1,9 +1,8 @@
-use crate::domain::room::Room;
-use dashmap::mapref::one::{Ref, RefMut};
+use dashmap::mapref::one::RefMut;
 use dashmap::DashMap;
-use eyre::{ContextCompat, Result};
-use std::collections::HashMap;
 use uuid::Uuid;
+
+use crate::domain::room::Room;
 
 #[derive(Clone)]
 pub struct RoomRepository {

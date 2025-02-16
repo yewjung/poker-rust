@@ -155,6 +155,9 @@ impl GameService {
         {
             room.leave_player(user_id)
         }
+        self.user_repository
+            .update_player_room(user_id, None)
+            .await?;
         Ok(())
     }
 

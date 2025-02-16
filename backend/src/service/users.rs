@@ -20,4 +20,8 @@ impl UserService {
     pub async fn get(&self, user_id: Uuid) -> Result<Option<User>> {
         self.user_repository.get(user_id).await
     }
+
+    pub async fn is_user_in_room(&self, user_id: Uuid, room_id: Uuid) -> Result<bool> {
+        self.user_repository.is_user_in_room(user_id, room_id).await
+    }
 }

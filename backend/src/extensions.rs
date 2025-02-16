@@ -38,7 +38,7 @@ where
             .tap_err(|e| error!("Failed to extract API: {}", e))
             .map_err(|_| StatusCode::UNAUTHORIZED)?;
 
-        let auth_user = match api.get_user(token).await {
+        let auth_user = match api.get_user_by_session_token(token).await {
             Ok(Some(auth_user)) => auth_user,
             _ => {
                 error!("Failed to get user from token");

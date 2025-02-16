@@ -1,12 +1,13 @@
-use eyre::Result;
+use eyre::{ensure, Result};
 use socketioxide::socket::Sid;
 use sqlx::types::Uuid;
 use validator::Validate;
 
 use crate::domain::auth::{AuthUser, LoginRequest, SignupRequest, UpdateProfileRequest};
-use crate::domain::request::JoinGameRequest;
+use crate::domain::request::{ActionRequest, JoinGameRequest};
 use crate::domain::room::Room;
 use crate::domain::user::User;
+use crate::error::Error;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
 use crate::service::users::UserService;
@@ -44,8 +45,8 @@ impl Api {
             .await
     }
 
-    pub async fn get_user(&self, token: Uuid) -> Result<Option<AuthUser>> {
-        self.auth_service.get_user(token).await
+    pub async fn get_user_by_session_token(&self, token: Uuid) -> Result<Option<AuthUser>> {
+        self.auth_service.get_user_by_session_token(token).await
     }
 
     pub async fn get_profile(&self, user_id: Uuid) -> Result<Option<User>> {
@@ -60,6 +61,18 @@ impl Api {
     ) -> Result<Room> {
         self.game_service
             .join_player(user_id, request.room_id, request.buy_in, sid)
+            .await
+    }
+
+    pub async fn take_action(&self, user_id: Uuid, request: ActionRequest) -> Result<Room> {
+        ensure!(
+            self.user_service
+                .is_user_in_room(user_id, request.room_id)
+                .await?,
+            Error::NotInRoom
+        );
+        self.game_service
+            .take_action(request.room_id, user_id, request.action)
             .await
     }
 }

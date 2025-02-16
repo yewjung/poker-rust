@@ -16,7 +16,7 @@ use sqlx::types::Uuid;
 use sqlx::PgPool;
 
 use crate::domain::auth::{LoginRequest, SignupRequest, UpdateProfileRequest};
-use crate::domain::request::JoinGameRequest;
+use crate::domain::request::{ActionRequest, JoinGameRequest};
 use crate::error::Error;
 use crate::extensions::ExtractUserFromToken;
 use crate::repository::auth::AuthUserRepository;
@@ -146,6 +146,27 @@ async fn join_game(
     }
 }
 
+async fn take_action(
+    s: SocketRef,
+    SocketExtension(user_id): SocketExtension<Uuid>,
+    Data(request): Data<ActionRequest>,
+    HttpExtension(api): HttpExtension<Api>,
+) {
+    let action = request.action.clone();
+    match api.take_action(user_id, request).await {
+        Ok(room) => {
+            debug!(
+                "User {} took action, {:?} in room {}",
+                user_id, action, room.id
+            );
+        }
+        Err(e) => {
+            let (_, message) = report_into_response(e);
+            let _ = s.emit("error", &message);
+        }
+    }
+}
+
 async fn leave_game(
     s: SocketRef,
     SocketExtension(user_id): SocketExtension<Uuid>,
@@ -173,7 +194,7 @@ async fn connection_handler(
     Data(token): Data<Uuid>,
     HttpExtension(api): HttpExtension<Api>,
 ) {
-    let user_id = match api.get_user(token).await {
+    let user_id = match api.get_user_by_session_token(token).await {
         Ok(Some(auth_user)) => auth_user.id,
         _ => {
             error!("Failed to get user from token");
@@ -183,6 +204,7 @@ async fn connection_handler(
     debug!("User {} connected", user_id);
     s.extensions.insert(user_id);
     s.on("join", join_game);
+    s.on("action", take_action);
     s.on("leave", leave_game);
     s.on_disconnect(handle_disconnect);
 }

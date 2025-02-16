@@ -107,6 +107,7 @@ pub enum Position {
     Dealer,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Action {
     Fold,
     Check,

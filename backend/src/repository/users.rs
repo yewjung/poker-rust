@@ -1,6 +1,8 @@
-use crate::domain::user::User;
 use eyre::Result;
 use sqlx::types::Uuid;
+use sqlx::Row;
+
+use crate::domain::user::User;
 
 #[cfg_attr(test, faux::create)]
 #[derive(Clone)]
@@ -96,5 +98,42 @@ impl UserRepository {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn update_player_room(
+        &self,
+        user_id: Uuid,
+        room_id: Option<Uuid>,
+    ) -> Result<Option<User>> {
+        sqlx::query_as(
+            r#"
+            UPDATE users
+            SET current_room = $1
+            WHERE id = $2
+            RETURNING *
+            "#,
+        )
+        .bind(room_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+
+    pub async fn is_user_in_room(&self, user_id: Uuid, room: Uuid) -> Result<bool> {
+        sqlx::query(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM users
+                WHERE id = $1 AND current_room = $2
+            )
+            "#,
+        )
+        .bind(user_id)
+        .bind(room)
+        .fetch_one(&self.pool)
+        .await
+        .map(|row| row.get(0))
+        .map_err(Into::into)
     }
 }
