@@ -3,10 +3,12 @@ use socketioxide::socket::Sid;
 use sqlx::types::Uuid;
 use validator::Validate;
 
-use crate::domain::auth::{AuthUser, LoginRequest, SignupRequest, UpdateProfileRequest};
-use crate::domain::request::{ActionRequest, JoinGameRequest};
+use client::domain::{
+    ActionRequest, JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User,
+};
+
+use crate::domain::auth::AuthUser;
 use crate::domain::room::Room;
-use crate::domain::user::User;
 use crate::error::Error;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;

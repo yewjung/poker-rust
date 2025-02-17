@@ -3,8 +3,8 @@ use rand::{rng, Rng};
 use reqwest::StatusCode;
 use tap::TapFallible;
 
-use crate::client::Client;
-use crate::domain::{LoginRequest, SignupRequest, UpdateProfileRequest, User};
+use client::client::Client;
+use client::domain::{LoginRequest, SignupRequest, UpdateProfileRequest, User};
 
 #[tokio::test]
 async fn test_signup_and_login() -> Result<(), reqwest::Error> {

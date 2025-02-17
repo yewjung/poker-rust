@@ -15,8 +15,8 @@ use socketioxide::{extract::SocketRef, SocketIo};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 
-use crate::domain::auth::{LoginRequest, SignupRequest, UpdateProfileRequest};
-use crate::domain::request::{ActionRequest, JoinGameRequest};
+use client::domain::{ActionRequest, JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest};
+
 use crate::error::Error;
 use crate::extensions::ExtractUserFromToken;
 use crate::repository::auth::AuthUserRepository;

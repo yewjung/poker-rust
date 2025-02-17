@@ -2,7 +2,7 @@ use eyre::Result;
 use sqlx::types::Uuid;
 use sqlx::Row;
 
-use crate::domain::user::User;
+use client::domain::User;
 
 #[cfg_attr(test, faux::create)]
 #[derive(Clone)]

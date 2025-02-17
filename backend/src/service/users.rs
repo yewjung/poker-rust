@@ -1,8 +1,10 @@
-use eyre::Result;
-use sqlx::types::Uuid;
 use std::sync::Arc;
 
-use crate::domain::user::User;
+use eyre::Result;
+use sqlx::types::Uuid;
+
+use client::domain::User;
+
 use crate::repository::users::UserRepository;
 
 #[derive(Clone)]

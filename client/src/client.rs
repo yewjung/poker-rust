@@ -1,9 +1,10 @@
-use crate::domain::{LoginRequest, SignupRequest, UpdateProfileRequest};
 use futures_util::FutureExt;
 use reqwest::{Error, Response};
 use rust_socketio::asynchronous::ClientBuilder;
 use rust_socketio::Payload;
 use serde_json::json;
+
+use crate::domain::*;
 
 pub struct Client {
     pub client: reqwest::Client,
@@ -64,7 +65,7 @@ impl Client {
         };
 
         // Creates a GET request, upgrades and sends it.
-        let mut socket = ClientBuilder::new("http://localhost:8080/")
+        let socket = ClientBuilder::new("http://localhost:8080/")
             .namespace("/game")
             .auth(token)
             .on("message-back", callback)

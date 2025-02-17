@@ -7,8 +7,9 @@ use socketioxide::socket::Sid;
 use sqlx::{FromRow, Type};
 use uuid::Uuid;
 
+use client::domain::{Action, User};
+
 use crate::domain::deck::Deck;
-use crate::domain::user::User;
 use crate::error::Error;
 use crate::service::game::ServiceRequiredAction;
 
@@ -105,15 +106,6 @@ pub enum Position {
     SmallBlind,
     DealerAndSmallBlind,
     Dealer,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Action {
-    Fold,
-    Check,
-    Call,
-    Raise(u32),
-    AllIn,
 }
 
 #[derive(Debug, Clone)]
