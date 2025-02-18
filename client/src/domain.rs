@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
+use strum_macros::AsRefStr;
 use uuid::Uuid;
 use validator::Validate;
 
@@ -49,4 +50,12 @@ pub struct User {
     pub name: String,
     pub balance: i64,
     pub current_room: Option<Uuid>,
+}
+
+#[derive(Debug, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum Event {
+    Join,
+    Action,
+    Leave,
 }

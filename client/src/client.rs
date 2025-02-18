@@ -1,15 +1,17 @@
 use futures_util::FutureExt;
+use reqwest::Client as ReqwestClient;
 use reqwest::{Error, Response, StatusCode};
 use rust_socketio::asynchronous::Client as SocketClient;
 use rust_socketio::asynchronous::ClientBuilder;
 use rust_socketio::Payload;
+use serde::Serialize;
 use serde_json::json;
 
 use crate::domain::*;
 
 pub struct Client {
-    pub client: reqwest::Client,
-    pub ws_socket: Option<SocketClient>,
+    pub client: ReqwestClient,
+    pub ws_client: Option<SocketClient>,
     pub token: Option<String>,
 }
 
@@ -25,7 +27,7 @@ impl Client {
     pub fn new() -> Self {
         Self {
             client: reqwest::Client::new(),
-            ws_socket: None,
+            ws_client: None,
             token: None,
         }
     }
@@ -81,7 +83,7 @@ impl Client {
 
         // Creates a GET request, upgrades and sends it.
         let token = self.token.clone().expect("No token");
-        self.ws_socket = Some(
+        self.ws_client = Some(
             ClientBuilder::new("http://localhost:8080/")
                 .namespace("/game")
                 .auth(token)
@@ -95,19 +97,25 @@ impl Client {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
-    pub async fn join_game(&mut self) -> eyre::Result<()> {
-        if self.ws_socket.is_none() {
+    pub async fn join_game(&mut self, payload: JoinGameRequest) -> eyre::Result<()> {
+        self.emit(Event::Join, payload).await
+    }
+
+    pub async fn action(&mut self, payload: ActionRequest) -> eyre::Result<()> {
+        self.emit(Event::Action, payload).await
+    }
+
+    pub async fn leave(&mut self) -> eyre::Result<()> {
+        self.emit(Event::Leave, String::default()).await
+    }
+
+    async fn emit<T: Serialize>(&mut self, event: Event, payload: T) -> eyre::Result<()> {
+        if self.ws_client.is_none() {
             self.create_ws_connection().await;
         }
-        let ws_socket = self.ws_socket.as_ref().expect("No socket connection");
+        let ws_socket = self.ws_client.as_ref().expect("No socket connection");
         ws_socket
-            .emit(
-                "join",
-                json!(JoinGameRequest {
-                    room_id: Default::default(),
-                    buy_in: 400,
-                }),
-            )
+            .emit(event.as_ref(), json!(payload))
             .await
             .expect("Server unreachable");
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;

@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use tap::TapFallible;
 
 use client::client::Client;
-use client::domain::{LoginRequest, SignupRequest, UpdateProfileRequest, User};
+use client::domain::{JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User};
 
 #[tokio::test]
 async fn test_signup_and_login() -> Result<(), reqwest::Error> {
@@ -115,6 +115,11 @@ async fn test_join_game() -> eyre::Result<()> {
         .await?;
     assert_eq!(login_status, StatusCode::OK);
 
-    client.join_game().await?;
+    client
+        .join_game(JoinGameRequest {
+            room_id: Default::default(),
+            buy_in: 100,
+        })
+        .await?;
     Ok(())
 }
