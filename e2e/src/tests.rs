@@ -8,7 +8,7 @@ use client::domain::{LoginRequest, SignupRequest, UpdateProfileRequest, User};
 
 #[tokio::test]
 async fn test_signup_and_login() -> Result<(), reqwest::Error> {
-    let client = Client::new();
+    let mut client = Client::new();
 
     let email = random_email();
     let request = SignupRequest {
@@ -19,7 +19,7 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
     assert_eq!(response.status(), StatusCode::CREATED);
 
     // login with correct password
-    let response = client
+    let login_status = client
         .login(LoginRequest {
             email: email.clone(),
             password: "password".to_string(),
@@ -27,15 +27,10 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
         .await
         .tap_err(|e| println!("Error: {:?}", e))?;
 
-    assert_eq!(response.status(), StatusCode::OK);
-
-    let token = response.text().await?;
-    println!("Token: {}", token);
-
-    assert!(!token.is_empty());
+    assert_eq!(login_status, StatusCode::OK);
 
     // login with incorrect password
-    let response = client
+    let login_status = client
         .login(LoginRequest {
             email: email.clone(),
             password: "wrong_password".to_string(),
@@ -43,7 +38,7 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
         .await
         .tap_err(|e| println!("Error: {:?}", e))?;
 
-    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(login_status, StatusCode::UNAUTHORIZED);
 
     // test signup with the same email
     let request = SignupRequest {
@@ -58,7 +53,7 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
         username: "new_username".to_string(),
     };
     let response = client
-        .update_profile(token.clone(), update_profile_request)
+        .update_profile(update_profile_request)
         .await
         .tap_err(|e| println!("Error: {:?}", e))?;
 
@@ -75,7 +70,7 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
     );
 
     // get profile
-    let response = client.get_profile(token).await?;
+    let response = client.get_profile().await?;
     assert_eq!(response.status(), StatusCode::OK);
     let user: User = response.json().await?;
     assert_eq!(
@@ -112,15 +107,14 @@ async fn test_join_game() -> eyre::Result<()> {
         })
         .await?;
 
-    let response = client
+    let login_status = client
         .login(LoginRequest {
             email,
             password: "password".to_string(),
         })
         .await?;
+    assert_eq!(login_status, StatusCode::OK);
 
-    let token = response.text().await?;
-    println!("{token}");
-    client.join_game(token).await?;
+    client.join_game().await?;
     Ok(())
 }
