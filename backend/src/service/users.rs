@@ -3,7 +3,7 @@ use std::sync::Arc;
 use eyre::Result;
 use sqlx::types::Uuid;
 
-use client::domain::User;
+use types::domain::User;
 
 use crate::repository::users::UserRepository;
 

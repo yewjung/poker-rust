@@ -7,7 +7,7 @@ use rust_socketio::Payload;
 use serde::Serialize;
 use serde_json::json;
 
-use crate::domain::*;
+use types::domain::*;
 
 pub struct Client {
     pub client: ReqwestClient,

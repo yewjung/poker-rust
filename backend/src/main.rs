@@ -15,7 +15,7 @@ use socketioxide::{extract::SocketRef, SocketIo};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 
-use client::domain::{
+use types::domain::{
     ActionRequest, JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest,
 };
 

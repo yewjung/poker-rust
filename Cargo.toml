@@ -1,5 +1,8 @@
 [workspace]
 members = [
-    "backend", "client", "e2e",   # Your existing Rust project
+    "backend",
+    "client",
+    "e2e",
+    # Your existing Rust project
 ]
 resolver = "2"  # Ensures compatibility with Rust edition 2021

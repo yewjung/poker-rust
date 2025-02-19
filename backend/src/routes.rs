@@ -3,7 +3,7 @@ use socketioxide::socket::Sid;
 use sqlx::types::Uuid;
 use validator::Validate;
 
-use client::domain::{
+use types::domain::{
     ActionRequest, JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User,
 };
 

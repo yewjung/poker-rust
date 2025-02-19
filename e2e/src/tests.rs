@@ -4,7 +4,7 @@ use reqwest::StatusCode;
 use tap::TapFallible;
 
 use client::client::Client;
-use client::domain::{JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User};
+use types::domain::{JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User};
 
 #[tokio::test]
 async fn test_signup_and_login() -> Result<(), reqwest::Error> {

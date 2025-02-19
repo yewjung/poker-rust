@@ -15,3 +15,4 @@ tap = "1.0.1"
 futures-util = "0.3.31"
 rust_socketio = { version="0.6.0", features = ["async"] }
 client = { path = "../client" }
+types = { path = "../backend/types" }

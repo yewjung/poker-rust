@@ -7,13 +7,19 @@ use socketioxide::socket::Sid;
 use sqlx::{FromRow, Type};
 use uuid::Uuid;
 
-use client::domain::{Action, User};
+use types::domain::{Action, User};
 
 use crate::domain::deck::Deck;
 use crate::error::Error;
 use crate::service::game::ServiceRequiredAction;
 
 #[derive(Debug, Clone, FromRow)]
+pub struct RoomInfo {
+    pub room_id: Uuid,
+    pub player_count: i64,
+}
+
+#[derive(Debug, Clone)]
 pub struct Room {
     pub id: Uuid,
     pub players: Vec<Player>,

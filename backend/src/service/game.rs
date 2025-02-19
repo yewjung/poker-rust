@@ -10,7 +10,7 @@ use socketioxide::socket::Sid;
 use socketioxide::SocketIo;
 use uuid::Uuid;
 
-use client::domain::{Action, User};
+use types::domain::{Action, User};
 
 use crate::domain::room::{Hand, Player, Room};
 use crate::domain::state::{PlayerHand, SharedGameState, Timestamped};

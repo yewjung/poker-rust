@@ -1,5 +1,5 @@
 [package]
-name = "client"
+name = "types"
 version = "0.1.0"
 edition = "2021"
 
@@ -15,7 +15,3 @@ tokio = { version = "1.43.0", features = ["macros", "rt-multi-thread"] }
 eyre = "0.6.12"
 rust_socketio = { version="0.6.0", features = ["async"] }
 strum_macros = "0.27.1"
-types = { path = "../backend/types" }
-
-
-
