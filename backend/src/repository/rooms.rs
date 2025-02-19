@@ -33,11 +33,11 @@ impl RoomRepository {
 }
 
 #[derive(Clone)]
-pub struct RoomPlayerCountRepository {
+pub struct RoomInfoRepository {
     pub pool: PgPool,
 }
 
-impl RoomPlayerCountRepository {
+impl RoomInfoRepository {
     pub async fn get_all(&self) -> Result<Vec<RoomInfo>> {
         sqlx::query_as(
             r#"
