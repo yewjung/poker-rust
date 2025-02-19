@@ -12,16 +12,17 @@ use uuid::Uuid;
 
 use types::domain::{Action, User};
 
-use crate::domain::room::{Hand, Player, Room};
+use crate::domain::room::{Hand, Player, Room, RoomInfo};
 use crate::domain::state::{PlayerHand, SharedGameState, Timestamped};
 use crate::error::Error;
-use crate::repository::rooms::RoomRepository;
+use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
 use crate::repository::users::UserRepository;
 
 #[derive(Clone)]
 pub struct GameService {
     pub evaluator: Evaluator,
     pub room_repository: RoomRepository,
+    pub room_info_repository: RoomInfoRepository,
     pub user_repository: Arc<UserRepository>,
     pub io: SocketIo,
 }
@@ -32,6 +33,17 @@ pub struct GameResult {
 }
 
 impl GameService {
+    pub async fn init_rooms(&mut self) -> Result<()> {
+        let rooms = self.room_info_repository.get_all().await?;
+        for room in rooms {
+            self.room_repository.upsert(Room::new_with_id(room.room_id));
+        }
+        Ok(())
+    }
+
+    pub async fn get_rooms(&self) -> Result<Vec<RoomInfo>> {
+        self.room_info_repository.get_all().await
+    }
     pub fn find_winners(&self, room: &Room) -> Result<GameResult> {
         ensure!(room.is_showdown(), "Game is not in the showdown stage yet");
 
@@ -77,6 +89,7 @@ impl GameService {
         largest
     }
 
+    #[cfg(test)]
     pub fn create_room(&mut self) -> Result<Room> {
         let room = Room::new();
         self.room_repository.upsert(room.clone());
@@ -295,6 +308,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
+            room_info_repository: RoomInfoRepository::faux(),
             user_repository: Arc::new(mock_user_repository()),
             io,
         };
@@ -500,6 +514,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
+            room_info_repository: RoomInfoRepository::faux(),
             user_repository: Arc::new(mock_user_repository()),
             io,
         };
@@ -577,6 +592,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
+            room_info_repository: RoomInfoRepository::faux(),
             user_repository: Arc::new(mock_user_repository()),
             io,
         };
@@ -653,6 +669,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
+            room_info_repository: RoomInfoRepository::faux(),
             user_repository: Arc::new(mock_user_repository()),
             io,
         };
@@ -733,6 +750,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
+            room_info_repository: RoomInfoRepository::faux(),
             user_repository: Arc::new(mock_user_repository()),
             io,
         };
@@ -791,6 +809,7 @@ mod tests {
         let mut service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
+            room_info_repository: RoomInfoRepository::faux(),
             user_repository: Arc::new(mock_user_repository()),
             io,
         };

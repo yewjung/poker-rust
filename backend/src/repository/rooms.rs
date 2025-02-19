@@ -32,12 +32,16 @@ impl RoomRepository {
     }
 }
 
+#[cfg_attr(test, faux::create)]
 #[derive(Clone)]
 pub struct RoomInfoRepository {
-    pub pool: PgPool,
+    pool: PgPool,
 }
-
+#[cfg_attr(test, faux::methods)]
 impl RoomInfoRepository {
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
     pub async fn get_all(&self) -> Result<Vec<RoomInfo>> {
         sqlx::query_as(
             r#"
@@ -90,6 +94,6 @@ impl RoomInfoRepository {
         .bind(room_id)
         .execute(&mut *tx)
         .await?;
-        Ok(())
+        tx.commit().await.map_err(Into::into)
     }
 }

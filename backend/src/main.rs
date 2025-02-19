@@ -22,7 +22,7 @@ use types::domain::{
 use crate::error::Error;
 use crate::extensions::ExtractUserFromToken;
 use crate::repository::auth::AuthUserRepository;
-use crate::repository::rooms::RoomRepository;
+use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
 use crate::repository::users::UserRepository;
 use crate::routes::Api;
 use crate::service::auth::AuthService;
@@ -52,6 +52,7 @@ async fn main() -> Result<()> {
 
     // repositories
     let room_repository = RoomRepository::new();
+    let room_info_repository = RoomInfoRepository::new(pool.clone());
     let user_repository = Arc::new(UserRepository::new(pool.clone()));
     let auth_repository = AuthUserRepository::new(pool.clone());
 
@@ -61,14 +62,19 @@ async fn main() -> Result<()> {
     // Register a handler for the default namespace
     io.ns("/game", connection_handler);
 
+    // service
+    let mut game_service = GameService {
+        evaluator: Evaluator::new(),
+        room_repository: room_repository.clone(),
+        room_info_repository,
+        user_repository: user_repository.clone(),
+        io,
+    };
+    game_service.init_rooms().await?;
+
     // API
     let api = Api {
-        game_service: GameService {
-            evaluator: Evaluator::new(),
-            room_repository,
-            user_repository: user_repository.clone(),
-            io,
-        },
+        game_service,
         auth_service: AuthService { auth_repository },
         user_service: UserService { user_repository },
     };
@@ -80,6 +86,7 @@ async fn main() -> Result<()> {
         .route("/login", post(login))
         .route("/profile", patch(update_profile))
         .route("/profile", get(get_profile))
+        .route("/rooms", get(get_rooms))
         .layer(socket_layer)
         .layer(Extension(api));
 
@@ -126,6 +133,16 @@ async fn get_profile(
     match api.get_profile(user_id).await {
         Ok(Some(user)) => (StatusCode::OK, Json(user)).into_response(),
         Ok(None) => StatusCode::NOT_FOUND.into_response(),
+        Err(e) => report_into_response(e).into_response(),
+    }
+}
+
+async fn get_rooms(
+    Extension(api): Extension<Api>,
+    ExtractUserFromToken(_user_id): ExtractUserFromToken,
+) -> impl IntoResponse {
+    match api.game_service.get_rooms().await {
+        Ok(rooms) => (StatusCode::OK, Json(rooms)).into_response(),
         Err(e) => report_into_response(e).into_response(),
     }
 }

@@ -13,7 +13,7 @@ use crate::domain::deck::Deck;
 use crate::error::Error;
 use crate::service::game::ServiceRequiredAction;
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct RoomInfo {
     pub room_id: Uuid,
     pub player_count: i64,
@@ -122,6 +122,20 @@ impl Room {
     pub fn new() -> Self {
         Room {
             id: Uuid::new_v4(),
+            players: Vec::new(),
+            deck: Deck::new(),
+            community_cards: Vec::with_capacity(5),
+            stage: Stage::NotEnoughPlayers,
+            pots: vec![],
+            player_joining_next_round: Vec::new(),
+            player_leaving_next_round: Default::default(),
+            player_in_turn: None,
+        }
+    }
+
+    pub fn new_with_id(id: Uuid) -> Self {
+        Room {
+            id,
             players: Vec::new(),
             deck: Deck::new(),
             community_cards: Vec::with_capacity(5),
@@ -601,7 +615,7 @@ impl Room {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::repository::rooms::RoomRepository;
+    use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
     use crate::repository::users::UserRepository;
     use crate::service::game::GameService;
     use poker::{card, cards, Evaluator};
@@ -634,6 +648,7 @@ mod tests {
         let game_service = GameService {
             evaluator: Evaluator::new(),
             room_repository: RoomRepository::new(),
+            room_info_repository: RoomInfoRepository::faux(),
             user_repository: Arc::new(UserRepository::faux()),
             io,
         };
