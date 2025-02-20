@@ -6,6 +6,7 @@ use rust_socketio::asynchronous::ClientBuilder;
 use rust_socketio::Payload;
 use serde::Serialize;
 use serde_json::json;
+use eyre::{bail, Result};
 
 use types::domain::*;
 
@@ -31,44 +32,62 @@ impl Client {
             token: None,
         }
     }
-    pub async fn signup(&self, request: SignupRequest) -> Result<Response, Error> {
+    pub async fn signup(&self, request: SignupRequest) -> Result<()> {
         let url = format!("{}/signup", BASE_URL);
-        self.client.post(url).json(&request).send().await
+        let response = self.client.post(url).json(&request).send().await?;
+        let status = response.status();
+        match status {
+            StatusCode::CREATED => Ok(()),
+            _ => bail!(status),
+        }
     }
 
-    pub async fn login(&mut self, request: LoginRequest) -> Result<StatusCode, Error> {
+    pub async fn login(&mut self, request: LoginRequest) -> Result<String> {
         let url = format!("{}/login", BASE_URL);
         let response = self.client.post(url).json(&request).send().await?;
-        let status_code = response.status();
-        if status_code.is_success() {
-            let token = response.text().await?;
-            self.token = Some(token);
+        let status = response.status();
+        match status {
+            StatusCode::OK => {
+                let token = response.text().await?;
+                self.token = Some(token.clone());
+                Ok(token)
+            }
+            _ => bail!(status),
         }
-        Ok(status_code)
     }
 
-    pub async fn update_profile(&self, request: UpdateProfileRequest) -> Result<Response, Error> {
+    pub async fn update_profile(&self, request: UpdateProfileRequest) -> Result<User> {
         let url = format!("{}/profile", BASE_URL);
         let token = self.token.clone().expect("No token");
-        self.client
+        let response = self.client
             .patch(url)
             .header("Authorization", format!("Bearer {}", token))
             .json(&request)
             .send()
-            .await
+            .await?;
+        let status = response.status();
+        match status {
+            StatusCode::OK => Ok(response.json().await?),
+            _ => bail!(status),
+        }
     }
 
-    pub async fn get_profile(&self) -> Result<Response, Error> {
+    pub async fn get_profile(&self) -> Result<User> {
         let url = format!("{}/profile", BASE_URL);
         let token = self.token.clone().expect("No token");
-        self.client
+        let response = self.client
             .get(url)
             .header("Authorization", format!("Bearer {}", token))
             .send()
-            .await
+            .await?;
+        let status = response.status();
+        match status {
+            StatusCode::OK => Ok(response.json().await?),
+            _ => bail!(status),
+        }
     }
 
-    pub async fn get_rooms(&self) -> eyre::Result<Vec<RoomInfo>> {
+    pub async fn get_rooms(&self) -> Result<Vec<RoomInfo>> {
         let url = format!("{}/rooms", BASE_URL);
         let token = self.token.clone().expect("No token");
         let response = self
@@ -77,11 +96,10 @@ impl Client {
             .header("Authorization", format!("Bearer {}", token))
             .send()
             .await?;
-        if response.status() == StatusCode::OK {
-            let rooms = response.json::<Vec<RoomInfo>>().await?;
-            Ok(rooms)
-        } else {
-            Err(eyre::eyre!("Failed to get rooms"))
+        let status = response.status();
+        match status {
+            StatusCode::OK => Ok(response.json().await?),
+            _ => bail!(status),
         }
     }
 
@@ -114,19 +132,19 @@ impl Client {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
-    pub async fn join_game(&mut self, payload: JoinGameRequest) -> eyre::Result<()> {
+    pub async fn join_game(&mut self, payload: JoinGameRequest) -> Result<()> {
         self.emit(Event::Join, payload).await
     }
 
-    pub async fn action(&mut self, payload: ActionRequest) -> eyre::Result<()> {
+    pub async fn action(&mut self, payload: ActionRequest) -> Result<()> {
         self.emit(Event::Action, payload).await
     }
 
-    pub async fn leave(&mut self) -> eyre::Result<()> {
+    pub async fn leave(&mut self) -> Result<()> {
         self.emit(Event::Leave, String::default()).await
     }
 
-    async fn emit<T: Serialize>(&mut self, event: Event, payload: T) -> eyre::Result<()> {
+    async fn emit<T: Serialize>(&mut self, event: Event, payload: T) -> Result<()> {
         if self.ws_client.is_none() {
             self.create_ws_connection().await;
         }

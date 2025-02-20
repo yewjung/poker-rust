@@ -1,2 +1,3 @@
-#[cfg(test)]
+mod domain;
 mod tests;
+mod util;

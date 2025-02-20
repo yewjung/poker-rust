@@ -1,25 +1,24 @@
-use rand::distr::Alphanumeric;
-use rand::{rng, Rng};
-use reqwest::StatusCode;
+use eyre::Result;
 use tap::TapFallible;
 
 use client::client::Client;
 use types::domain::{JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User};
 
+use crate::util;
+
 #[tokio::test]
-async fn test_signup_and_login() -> Result<(), reqwest::Error> {
+async fn test_signup_and_login() -> Result<()> {
     let mut client = Client::new();
 
-    let email = random_email();
+    let email = util::random_email();
     let request = SignupRequest {
         email: email.clone(),
         password: "password".to_string(),
     };
-    let response = client.signup(request).await?;
-    assert_eq!(response.status(), StatusCode::CREATED);
+    client.signup(request).await?;
 
     // login with correct password
-    let login_status = client
+    client
         .login(LoginRequest {
             email: email.clone(),
             password: "password".to_string(),
@@ -27,38 +26,33 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
         .await
         .tap_err(|e| println!("Error: {:?}", e))?;
 
-    assert_eq!(login_status, StatusCode::OK);
-
     // login with incorrect password
-    let login_status = client
+    let login_result = client
         .login(LoginRequest {
             email: email.clone(),
             password: "wrong_password".to_string(),
         })
-        .await
-        .tap_err(|e| println!("Error: {:?}", e))?;
+        .await;
 
-    assert_eq!(login_status, StatusCode::UNAUTHORIZED);
+    assert!(login_result.is_err());
 
     // test signup with the same email
     let request = SignupRequest {
         email,
         password: "password".to_string(),
     };
-    let response = client.signup(request).await?;
-    assert_eq!(response.status(), StatusCode::CONFLICT);
+    let signup_result = client.signup(request).await;
+    assert!(signup_result.is_err());
 
     // update profile
     let update_profile_request = UpdateProfileRequest {
         username: "new_username".to_string(),
     };
-    let response = client
+    let user = client
         .update_profile(update_profile_request)
         .await
         .tap_err(|e| println!("Error: {:?}", e))?;
 
-    assert_eq!(response.status(), StatusCode::OK);
-    let user: User = response.json().await?;
     assert_eq!(
         user,
         User {
@@ -70,9 +64,7 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
     );
 
     // get profile
-    let response = client.get_profile().await?;
-    assert_eq!(response.status(), StatusCode::OK);
-    let user: User = response.json().await?;
+    let user = client.get_profile().await?;
     assert_eq!(
         user,
         User {
@@ -85,21 +77,10 @@ async fn test_signup_and_login() -> Result<(), reqwest::Error> {
     Ok(())
 }
 
-fn random_email() -> String {
-    // generate a random email
-    let random_string: String = rng()
-        .sample_iter(&Alphanumeric)
-        .take(6)
-        .map(char::from)
-        .collect();
-
-    format!("{}@gmail.com", random_string)
-}
-
 #[tokio::test]
-async fn test_join_game() -> eyre::Result<()> {
+async fn test_join_game() -> Result<()> {
     let mut client = Client::new();
-    let email = random_email();
+    let email = util::random_email();
     client
         .signup(SignupRequest {
             email: email.clone(),
@@ -107,13 +88,12 @@ async fn test_join_game() -> eyre::Result<()> {
         })
         .await?;
 
-    let login_status = client
+    client
         .login(LoginRequest {
             email,
             password: "password".to_string(),
         })
         .await?;
-    assert_eq!(login_status, StatusCode::OK);
 
     client
         .join_game(JoinGameRequest {
