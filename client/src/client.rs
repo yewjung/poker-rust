@@ -68,6 +68,22 @@ impl Client {
             .await
     }
 
+    pub async fn get_rooms(&self) -> eyre::Result<Vec<RoomInfo>> {
+        let url = format!("{}/rooms", BASE_URL);
+        let token = self.token.clone().expect("No token");
+        let response = self.client
+            .get(url)
+            .header("Authorization", format!("Bearer {}", token))
+            .send()
+            .await?;
+        if response.status() == StatusCode::OK {
+            let rooms = response.json::<Vec<RoomInfo>>().await?;
+            Ok(rooms)
+        } else {
+            Err(eyre::eyre!("Failed to get rooms"))
+        }
+    }
+
     pub async fn create_ws_connection(&mut self) {
         let callback = |payload: Payload, _socket: SocketClient| {
             async move {

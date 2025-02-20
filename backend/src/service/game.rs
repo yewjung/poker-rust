@@ -10,9 +10,9 @@ use socketioxide::socket::Sid;
 use socketioxide::SocketIo;
 use uuid::Uuid;
 
-use types::domain::{Action, User};
+use types::domain::{Action, RoomInfo, User};
 
-use crate::domain::room::{Hand, Player, Room, RoomInfo};
+use crate::domain::room::{Hand, Player, Room};
 use crate::domain::state::{PlayerHand, SharedGameState, Timestamped};
 use crate::error::Error;
 use crate::repository::rooms::{RoomInfoRepository, RoomRepository};

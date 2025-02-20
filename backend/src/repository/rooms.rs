@@ -3,8 +3,9 @@ use dashmap::DashMap;
 use eyre::{bail, Result};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
+use types::domain::RoomInfo;
 
-use crate::domain::room::{Room, RoomInfo};
+use crate::domain::room::Room;
 use crate::error::Error;
 
 #[derive(Clone)]
