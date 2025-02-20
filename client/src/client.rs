@@ -71,7 +71,8 @@ impl Client {
     pub async fn get_rooms(&self) -> eyre::Result<Vec<RoomInfo>> {
         let url = format!("{}/rooms", BASE_URL);
         let token = self.token.clone().expect("No token");
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .header("Authorization", format!("Bearer {}", token))
             .send()
