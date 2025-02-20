@@ -46,7 +46,7 @@ impl RoomInfoRepository {
     pub async fn get_all(&self) -> Result<Vec<RoomInfo>> {
         sqlx::query_as(
             r#"
-            SELECT * as player_count FROM room_players
+            SELECT * FROM room_info
             "#,
         )
         .fetch_all(&self.pool)
@@ -61,7 +61,7 @@ impl RoomInfoRepository {
         let mut tx = self.pool.begin().await?;
         let room_info: Option<RoomInfo> = sqlx::query_as(
             r#"
-            SELECT * FROM room_players
+            SELECT * FROM room_info
             WHERE room_id = $1
             FOR UPDATE
             "#,

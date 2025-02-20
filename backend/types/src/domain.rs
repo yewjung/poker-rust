@@ -63,5 +63,5 @@ pub enum Event {
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
 pub struct RoomInfo {
     pub room_id: Uuid,
-    pub player_count: i64,
+    pub player_count: i32,
 }

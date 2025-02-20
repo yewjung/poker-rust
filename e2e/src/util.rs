@@ -1,3 +1,4 @@
+use eyre::Result;
 use rand::distr::Alphanumeric;
 use rand::{rng, Rng};
 use tap::TapFallible;
@@ -7,7 +8,7 @@ use types::domain::{LoginRequest, SignupRequest, UpdateProfileRequest};
 
 use crate::domain::TestUser;
 
-async fn register_user() -> eyre::Result<TestUser> {
+pub async fn register_user() -> Result<TestUser> {
     let mut client = Client::new();
 
     let email = random_email();

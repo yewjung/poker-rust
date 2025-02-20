@@ -4,6 +4,7 @@ use tap::TapFallible;
 use client::client::Client;
 use types::domain::{JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User};
 
+use crate::domain::TestUser;
 use crate::util;
 
 #[tokio::test]
@@ -79,27 +80,12 @@ async fn test_signup_and_login() -> Result<()> {
 
 #[tokio::test]
 async fn test_join_game() -> Result<()> {
-    let mut client = Client::new();
-    let email = util::random_email();
-    client
-        .signup(SignupRequest {
-            email: email.clone(),
-            password: "password".to_string(),
-        })
-        .await?;
+    let mut user = TestUser::new().await?;
 
-    client
-        .login(LoginRequest {
-            email,
-            password: "password".to_string(),
-        })
-        .await?;
-
-    client
-        .join_game(JoinGameRequest {
-            room_id: Default::default(),
-            buy_in: 100,
-        })
-        .await?;
+    user.join_game(JoinGameRequest {
+        room_id: Default::default(),
+        buy_in: 100,
+    })
+    .await?;
     Ok(())
 }

@@ -1,3 +1,4 @@
+use eyre::{bail, Result};
 use futures_util::FutureExt;
 use reqwest::Client as ReqwestClient;
 use reqwest::{Error, Response, StatusCode};
@@ -6,7 +7,6 @@ use rust_socketio::asynchronous::ClientBuilder;
 use rust_socketio::Payload;
 use serde::Serialize;
 use serde_json::json;
-use eyre::{bail, Result};
 
 use types::domain::*;
 
@@ -59,7 +59,8 @@ impl Client {
     pub async fn update_profile(&self, request: UpdateProfileRequest) -> Result<User> {
         let url = format!("{}/profile", BASE_URL);
         let token = self.token.clone().expect("No token");
-        let response = self.client
+        let response = self
+            .client
             .patch(url)
             .header("Authorization", format!("Bearer {}", token))
             .json(&request)
@@ -75,7 +76,8 @@ impl Client {
     pub async fn get_profile(&self) -> Result<User> {
         let url = format!("{}/profile", BASE_URL);
         let token = self.token.clone().expect("No token");
-        let response = self.client
+        let response = self
+            .client
             .get(url)
             .header("Authorization", format!("Bearer {}", token))
             .send()
