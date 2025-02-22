@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use strum_macros::AsRefStr;
@@ -54,10 +56,24 @@ pub struct User {
 
 #[derive(Debug, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum Event {
+pub enum ClientEvent {
     Join,
     Action,
     Leave,
+}
+
+impl From<ClientEvent> for Cow<'_, str> {
+    fn from(event: ClientEvent) -> Self {
+        event.as_ref().to_owned().into()
+    }
+}
+
+#[derive(Debug, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum ServiceEvent {
+    Room,
+    Hand,
+    ServiceError,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

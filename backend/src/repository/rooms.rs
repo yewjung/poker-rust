@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
 use dashmap::mapref::one::RefMut;
 use dashmap::DashMap;
 use eyre::{bail, Result};
+use log::debug;
 use sqlx::types::Uuid;
 use sqlx::PgPool;
+
 use types::domain::RoomInfo;
 
 use crate::domain::room::Room;
@@ -10,13 +14,13 @@ use crate::error::Error;
 
 #[derive(Clone)]
 pub struct RoomRepository {
-    rooms: DashMap<Uuid, Room>,
+    rooms: Arc<DashMap<Uuid, Room>>,
 }
 
 impl RoomRepository {
     pub fn new() -> Self {
         RoomRepository {
-            rooms: DashMap::new(),
+            rooms: Arc::new(DashMap::new()),
         }
     }
 

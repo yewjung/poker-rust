@@ -193,13 +193,17 @@ impl Room {
     }
 
     fn is_joinable(&self) -> bool {
+        self.player_count() < 10
+    }
+
+    pub fn player_count(&self) -> usize {
         let count = self
             .players
             .iter()
             .chain(self.player_joining_next_round.iter())
             .filter(|p| p.chips > 0)
             .count();
-        count - self.player_leaving_next_round.len() < 10
+        count - self.player_leaving_next_round.len()
     }
 
     pub fn start_game(&mut self) -> Result<()> {

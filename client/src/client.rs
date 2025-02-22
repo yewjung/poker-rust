@@ -1,13 +1,12 @@
 use eyre::{bail, Result};
 use futures_util::FutureExt;
 use reqwest::Client as ReqwestClient;
-use reqwest::{Error, Response, StatusCode};
+use reqwest::StatusCode;
 use rust_socketio::asynchronous::Client as SocketClient;
 use rust_socketio::asynchronous::ClientBuilder;
 use rust_socketio::Payload;
 use serde::Serialize;
 use serde_json::json;
-
 use types::domain::*;
 
 pub struct Client {
@@ -106,8 +105,45 @@ impl Client {
     }
 
     pub async fn create_ws_connection(&mut self) {
-        let callback = |payload: Payload, _socket: SocketClient| {
+        let hand_callback = |payload: Payload, _socket: SocketClient| {
             async move {
+                println!("hand event:");
+                match payload {
+                    Payload::Text(values) => println!("Received: {:#?}", values),
+                    Payload::Binary(bin_data) => println!("Received bytes: {:#?}", bin_data),
+                    // This is deprecated use Payload::Text instead
+                    Payload::String(str) => println!("Received: {}", str),
+                }
+            }
+            .boxed()
+        };
+        let room_callback = |payload: Payload, _socket: SocketClient| {
+            async move {
+                println!("room event:");
+                match payload {
+                    Payload::Text(values) => println!("Received: {:#?}", values),
+                    Payload::Binary(bin_data) => println!("Received bytes: {:#?}", bin_data),
+                    // This is deprecated use Payload::Text instead
+                    Payload::String(str) => println!("Received: {}", str),
+                }
+            }
+            .boxed()
+        };
+        let error_callback = |payload: Payload, _socket: SocketClient| {
+            async move {
+                println!("service_error event:");
+                match payload {
+                    Payload::Text(values) => println!("Received: {:#?}", values),
+                    Payload::Binary(bin_data) => println!("Received bytes: {:#?}", bin_data),
+                    // This is deprecated use Payload::Text instead
+                    Payload::String(str) => println!("Received: {}", str),
+                }
+            }
+            .boxed()
+        };
+        let default_callback = |payload: Payload, _socket: SocketClient| {
+            async move {
+                println!("default event:");
                 match payload {
                     Payload::Text(values) => println!("Received: {:#?}", values),
                     Payload::Binary(bin_data) => println!("Received bytes: {:#?}", bin_data),
@@ -124,9 +160,10 @@ impl Client {
             ClientBuilder::new("http://localhost:8080/")
                 .namespace("/game")
                 .auth(token)
-                .on("hand", callback)
-                .on("room", callback)
-                .on("error", callback)
+                .on("hand", hand_callback)
+                .on("room", room_callback)
+                .on("service_error", error_callback)
+                .on("error", default_callback)
                 .connect()
                 .await
                 .expect("Connection failed"),
@@ -135,18 +172,18 @@ impl Client {
     }
 
     pub async fn join_game(&mut self, payload: JoinGameRequest) -> Result<()> {
-        self.emit(Event::Join, payload).await
+        self.emit(ClientEvent::Join, payload).await
     }
 
     pub async fn action(&mut self, payload: ActionRequest) -> Result<()> {
-        self.emit(Event::Action, payload).await
+        self.emit(ClientEvent::Action, payload).await
     }
 
     pub async fn leave(&mut self) -> Result<()> {
-        self.emit(Event::Leave, String::default()).await
+        self.emit(ClientEvent::Leave, String::default()).await
     }
 
-    async fn emit<T: Serialize>(&mut self, event: Event, payload: T) -> Result<()> {
+    async fn emit<T: Serialize>(&mut self, event: ClientEvent, payload: T) -> Result<()> {
         if self.ws_client.is_none() {
             self.create_ws_connection().await;
         }
@@ -158,5 +195,19 @@ impl Client {
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         Ok(())
+    }
+}
+
+impl Drop for Client {
+    fn drop(&mut self) {
+        if let Some(ws_client) = &self.ws_client {
+            let client = ws_client.clone();
+            tokio::spawn(async move {
+                client
+                    .disconnect()
+                    .await
+                    .expect("Failed to disconnect in drop");
+            });
+        }
     }
 }

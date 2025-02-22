@@ -16,7 +16,8 @@ use sqlx::types::Uuid;
 use sqlx::PgPool;
 
 use types::domain::{
-    ActionRequest, JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest,
+    ActionRequest, ClientEvent, JoinGameRequest, LoginRequest, ServiceEvent, SignupRequest,
+    UpdateProfileRequest,
 };
 
 use crate::error::Error;
@@ -90,7 +91,7 @@ async fn main() -> Result<()> {
         .layer(socket_layer)
         .layer(Extension(api));
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await.unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     axum::serve(listener, router).await?;
     Ok(())
 }
@@ -153,14 +154,16 @@ async fn join_game(
     Data(request): Data<JoinGameRequest>,
     HttpExtension(api): HttpExtension<Api>,
 ) {
+    let room_id = request.room_id;
+    s.join(room_id.to_string());
     match api.join_game(user_id, request, s.id).await {
         Ok(room) => {
             debug!("User {} joined room {}", user_id, room.id);
-            s.join(room.id.to_string());
         }
         Err(e) => {
+            s.leave(room_id.to_string());
             let (_, message) = report_into_response(e);
-            let _ = s.emit("error", &message);
+            let _ = s.emit(ServiceEvent::ServiceError, &message);
         }
     }
 }
@@ -181,7 +184,7 @@ async fn take_action(
         }
         Err(e) => {
             let (_, message) = report_into_response(e);
-            let _ = s.emit("error", &message);
+            let _ = s.emit(ServiceEvent::ServiceError, &message);
         }
     }
 }
@@ -195,7 +198,7 @@ async fn leave_game(
         Ok(_) => debug!("User {} left the room", user_id),
         Err(e) => {
             let (_, message) = report_into_response(e);
-            let _ = s.emit("error", &message);
+            let _ = s.emit(ServiceEvent::ServiceError, &message);
         }
     }
 }
@@ -222,9 +225,9 @@ async fn connection_handler(
     };
     debug!("User {} connected", user_id);
     s.extensions.insert(user_id);
-    s.on("join", join_game);
-    s.on("action", take_action);
-    s.on("leave", leave_game);
+    s.on(ClientEvent::Join, join_game);
+    s.on(ClientEvent::Action, take_action);
+    s.on(ClientEvent::Leave, leave_game);
     s.on_disconnect(handle_disconnect);
 }
 

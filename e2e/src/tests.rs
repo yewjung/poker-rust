@@ -1,11 +1,22 @@
+use std::sync::Arc;
+use std::time::Duration;
+
+use dashmap::DashMap;
 use eyre::Result;
+use lazy_static::lazy_static;
 use tap::TapFallible;
+use tokio::time::sleep;
+use uuid::Uuid;
 
 use client::client::Client;
 use types::domain::{JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User};
 
 use crate::domain::TestUser;
 use crate::util;
+
+lazy_static! {
+    static ref room_map: Arc<DashMap<String, Uuid>> = Arc::new(DashMap::new());
+}
 
 #[tokio::test]
 async fn test_signup_and_login() -> Result<()> {
@@ -82,10 +93,65 @@ async fn test_signup_and_login() -> Result<()> {
 async fn test_join_game() -> Result<()> {
     let mut user = TestUser::new().await?;
 
-    user.join_game(JoinGameRequest {
-        room_id: Default::default(),
-        buy_in: 100,
-    })
-    .await?;
+    let rooms = user.client.get_rooms().await?;
+
+    let room_id = rooms.first().unwrap().room_id;
+
+    user.client
+        .join_game(JoinGameRequest {
+            room_id,
+            buy_in: 100,
+        })
+        .await?;
+
+    // check if the player count is 1
+    let rooms = user.client.get_rooms().await?;
+    let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
+    assert_eq!(room.player_count, 1);
+    drop(user);
+
+    // check if the room player count is 0
+    sleep(Duration::from_secs(1)).await;
+    let new_user = TestUser::new().await?;
+    let rooms = new_user.client.get_rooms().await?;
+    let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
+    assert_eq!(room.player_count, 0);
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_2_players_join_game() -> Result<()> {
+    let mut user1 = TestUser::new().await?;
+    println!("user1: {}", user1.user.id);
+    let mut user2 = TestUser::new().await?;
+    println!("user2: {}", user2.user.id);
+
+    let rooms = user1.client.get_rooms().await?;
+
+    let room_id = rooms.first().unwrap().room_id;
+
+    user1
+        .client
+        .join_game(JoinGameRequest {
+            room_id,
+            buy_in: 100,
+        })
+        .await?;
+
+    user2
+        .client
+        .join_game(JoinGameRequest {
+            room_id,
+            buy_in: 100,
+        })
+        .await?;
+
+    // check if the player count is 2
+    let rooms = user1.client.get_rooms().await?;
+    let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
+    println!("waiting for 2 players to join");
+    assert_eq!(room.player_count, 2);
+
     Ok(())
 }

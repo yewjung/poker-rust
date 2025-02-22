@@ -14,8 +14,4 @@ impl TestUser {
     pub async fn new() -> Result<Self> {
         register_user().await
     }
-
-    pub async fn join_game(&mut self, request: JoinGameRequest) -> Result<()> {
-        self.client.join_game(request).await
-    }
 }

@@ -62,7 +62,7 @@ impl Api {
         sid: Sid,
     ) -> Result<Room> {
         self.game_service
-            .join_player(user_id, request.room_id, request.buy_in, sid)
+            .join_player(request.room_id, user_id, request.buy_in, sid)
             .await
     }
 
