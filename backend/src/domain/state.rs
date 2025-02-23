@@ -8,6 +8,7 @@ use crate::domain::room::{Hand, Player, Position, Room, Stage};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SharedGameState {
+    pub id: Uuid,
     pub players: Vec<PlayerState>,
     pub community_cards: Vec<CardString>,
     pub pots: Vec<u32>,
@@ -52,6 +53,7 @@ pub struct PlayerState {
     pub position: Position,
     pub hand: HandState,
     pub eval: Option<String>,
+    pub is_connected: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +69,7 @@ pub struct PlayerHand(pub [CardString; 2]);
 impl SharedGameState {
     pub fn from_room(room: Room, reveal_cards: bool) -> Self {
         SharedGameState {
+            id: room.id,
             players: room
                 .players
                 .into_iter()
@@ -102,6 +105,7 @@ impl PlayerState {
                 Some(_) => HandState::Hidden,
             },
             eval: None,
+            is_connected: player.is_connected,
         }
     }
 }

@@ -1,3 +1,4 @@
+use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 
@@ -15,11 +16,7 @@ use socketioxide::{extract::SocketRef, SocketIo};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 
-use types::domain::{
-    ActionRequest, ClientEvent, JoinGameRequest, LoginRequest, ServiceEvent, SignupRequest,
-    UpdateProfileRequest,
-};
-
+use crate::domain::state::SharedGameState;
 use crate::error::Error;
 use crate::extensions::ExtractUserFromToken;
 use crate::repository::auth::AuthUserRepository;
@@ -29,6 +26,10 @@ use crate::routes::Api;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
 use crate::service::users::UserService;
+use types::domain::{
+    ActionRequest, ClientEvent, JoinGameRequest, LoginRequest, ServiceEvent, SignupRequest,
+    UpdateProfileRequest,
+};
 
 mod domain;
 mod error;
@@ -82,7 +83,7 @@ async fn main() -> Result<()> {
 
     // routes
     let router = Router::new()
-        .route("/", get(|| async { "Hello, World!" }))
+        .route("/", get(get_room_states))
         .route("/signup", post(signup))
         .route("/login", post(login))
         .route("/profile", patch(update_profile))
@@ -138,6 +139,17 @@ async fn get_profile(
     }
 }
 
+async fn get_room_states(Extension(api): Extension<Api>) -> impl IntoResponse {
+    let rooms: Vec<SharedGameState> = api
+        .game_service
+        .room_repository
+        .rooms
+        .iter()
+        .map(|room| SharedGameState::from_room(room.deref().clone(), true))
+        .collect();
+    (StatusCode::OK, Json(rooms)).into_response()
+}
+
 async fn get_rooms(
     Extension(api): Extension<Api>,
     ExtractUserFromToken(_user_id): ExtractUserFromToken,
@@ -155,7 +167,6 @@ async fn join_game(
     HttpExtension(api): HttpExtension<Api>,
 ) {
     let room_id = request.room_id;
-    s.join(room_id.to_string());
     match api.join_game(user_id, request, s.id).await {
         Ok(room) => {
             debug!("User {} joined room {}", user_id, room.id);

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use dashmap::DashMap;
+use dashmap::DashSet;
 use eyre::Result;
 use lazy_static::lazy_static;
 use tap::TapFallible;
@@ -9,13 +9,15 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use client::client::Client;
-use types::domain::{JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User};
+use types::domain::{
+    JoinGameRequest, LoginRequest, RoomInfo, SignupRequest, UpdateProfileRequest, User,
+};
 
 use crate::domain::TestUser;
 use crate::util;
 
 lazy_static! {
-    static ref room_map: Arc<DashMap<String, Uuid>> = Arc::new(DashMap::new());
+    static ref room_map: Arc<DashSet<Uuid>> = Arc::new(DashSet::new());
 }
 
 #[tokio::test]
@@ -95,7 +97,7 @@ async fn test_join_game() -> Result<()> {
 
     let rooms = user.client.get_rooms().await?;
 
-    let room_id = rooms.first().unwrap().room_id;
+    let room_id = get_empty_room_id(rooms).await;
 
     user.client
         .join_game(JoinGameRequest {
@@ -110,13 +112,32 @@ async fn test_join_game() -> Result<()> {
     assert_eq!(room.player_count, 1);
     drop(user);
 
-    // check if the room player count is 0
+    // make sure the player count is 0
+    sleep(Duration::from_secs(1)).await;
+    let mut new_user = TestUser::new().await?;
+    let rooms = new_user.client.get_rooms().await?;
+    let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
+    assert_eq!(room.player_count, 0);
+
+    // joining another player to the same room, player count should be 1
+    new_user
+        .client
+        .join_game(JoinGameRequest {
+            room_id,
+            buy_in: 100,
+        })
+        .await?;
+    let rooms = new_user.client.get_rooms().await?;
+    let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
+    assert_eq!(room.player_count, 1);
+    drop(new_user);
+
+    // make sure the player count is 0
     sleep(Duration::from_secs(1)).await;
     let new_user = TestUser::new().await?;
     let rooms = new_user.client.get_rooms().await?;
     let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
     assert_eq!(room.player_count, 0);
-
     Ok(())
 }
 
@@ -129,7 +150,7 @@ async fn test_2_players_join_game() -> Result<()> {
 
     let rooms = user1.client.get_rooms().await?;
 
-    let room_id = rooms.first().unwrap().room_id;
+    let room_id = get_empty_room_id(rooms).await;
 
     user1
         .client
@@ -154,4 +175,20 @@ async fn test_2_players_join_game() -> Result<()> {
     assert_eq!(room.player_count, 2);
 
     Ok(())
+}
+
+async fn get_empty_room_id(rooms: Vec<RoomInfo>) -> Uuid {
+    let mut already_used = true;
+    let mut empty_room_id = Uuid::default();
+    while already_used {
+        let room_id = rooms
+            .iter()
+            .find(|r| !room_map.contains(&r.room_id) && r.player_count == 0)
+            .unwrap()
+            .room_id;
+        empty_room_id = room_id;
+        already_used = !room_map.insert(room_id);
+    }
+    println!("empty room id: {}", empty_room_id);
+    empty_room_id
 }

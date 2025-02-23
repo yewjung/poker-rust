@@ -22,7 +22,6 @@ pub struct Room {
     pub stage: Stage,
     pub pots: Vec<Pot>,
     pub player_joining_next_round: Vec<Player>,
-    pub player_leaving_next_round: HashSet<Uuid>,
     pub player_in_turn: Option<Uuid>,
 }
 
@@ -38,6 +37,7 @@ pub struct Player {
     pub position: Position,
     pub has_taken_turn: bool,
     pub sid: Sid,
+    pub is_connected: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +59,7 @@ impl Player {
             position: Position::Normal,
             has_taken_turn: false,
             sid: Sid::default(),
+            is_connected: true,
         }
     }
 
@@ -84,6 +85,7 @@ impl Player {
             position: Position::Normal,
             has_taken_turn: false,
             sid,
+            is_connected: true,
         }
     }
 }
@@ -122,7 +124,6 @@ impl Room {
             stage: Stage::NotEnoughPlayers,
             pots: vec![],
             player_joining_next_round: Vec::new(),
-            player_leaving_next_round: Default::default(),
             player_in_turn: None,
         }
     }
@@ -136,7 +137,6 @@ impl Room {
             stage: Stage::NotEnoughPlayers,
             pots: vec![],
             player_joining_next_round: Vec::new(),
-            player_leaving_next_round: Default::default(),
             player_in_turn: None,
         }
     }
@@ -186,10 +186,18 @@ impl Room {
     }
 
     pub fn leave_player(&mut self, player_id: Uuid) {
-        if self.players.iter().any(|p| p.id == player_id) {
-            self.player_leaving_next_round.insert(player_id);
+        self.players
+            .iter_mut()
+            .chain(self.player_joining_next_round.iter_mut())
+            .filter(|p| p.id == player_id)
+            .for_each(|p| {
+                p.is_connected = false;
+                p.has_folded = true;
+            });
+        if self.players.iter().all(|p| !p.is_connected) {
+            self.reset_table();
+            self.stage = Stage::NotEnoughPlayers;
         }
-        self.player_joining_next_round.retain(|p| p.id != player_id);
     }
 
     fn is_joinable(&self) -> bool {
@@ -197,13 +205,11 @@ impl Room {
     }
 
     pub fn player_count(&self) -> usize {
-        let count = self
-            .players
+        self.players
             .iter()
             .chain(self.player_joining_next_round.iter())
-            .filter(|p| p.chips > 0)
-            .count();
-        count - self.player_leaving_next_round.len()
+            .filter(|p| p.is_connected && p.chips > 0)
+            .count()
     }
 
     pub fn start_game(&mut self) -> Result<()> {
@@ -258,16 +264,16 @@ impl Room {
         self.community_cards.clear();
         // Reset the deck
         self.deck = Deck::new();
+        // reset player turn
+        self.player_in_turn = None;
     }
 
     fn seat_players(&mut self) {
-        // Remove players who left the game
-        self.players
-            .retain(|p| !self.player_leaving_next_round.contains(&p.id));
-        // Remove players who have no chips
-        self.players.retain(|p| p.chips > 0);
-        self.player_leaving_next_round.clear();
+        // Remove players who left the game or have no chips
+        self.players.retain(|p| p.is_connected && p.chips > 0);
         // Add players who joined the game
+        self.player_joining_next_round
+            .retain(|p| p.is_connected && p.chips > 0);
         self.players.append(&mut self.player_joining_next_round);
     }
 
@@ -663,6 +669,7 @@ mod tests {
                     position: Position::DealerAndSmallBlind,
                     has_taken_turn: true,
                     sid: Sid::from_str("AA9AAA0AAzAAAAHs")?,
+                    is_connected: true,
                 },
                 Player {
                     id: Uuid::from_u128(2),
@@ -674,6 +681,7 @@ mod tests {
                     position: Position::BigBlind,
                     has_taken_turn: true,
                     sid: Sid::from_str("AA9AAA0AAzAAAAHB")?,
+                    is_connected: true,
                 },
             ],
             deck: Deck::new(),
@@ -684,7 +692,6 @@ mod tests {
                 players: HashSet::from([Uuid::from_u128(1), Uuid::from_u128(2)]),
             }],
             player_joining_next_round: Default::default(),
-            player_leaving_next_round: Default::default(),
             player_in_turn: None,
         };
 
@@ -709,7 +716,8 @@ mod tests {
                     has_folded: false,
                     position: Position::DealerAndSmallBlind,
                     has_taken_turn: true,
-                    sid: Sid::from_str("AA9AAA0AAzAAAAHs")?
+                    sid: Sid::from_str("AA9AAA0AAzAAAAHs")?,
+                    is_connected: true,
                 },
                 &Player {
                     id: Uuid::from_u128(2),
@@ -720,7 +728,8 @@ mod tests {
                     has_folded: false,
                     position: Position::BigBlind,
                     has_taken_turn: true,
-                    sid: Sid::from_str("AA9AAA0AAzAAAAHB")?
+                    sid: Sid::from_str("AA9AAA0AAzAAAAHB")?,
+                    is_connected: true,
                 },
             ]
         );
@@ -861,6 +870,7 @@ mod tests {
                     position: Position::DealerAndSmallBlind,
                     has_taken_turn: alice_has_taken_turn,
                     sid: Sid::default(),
+                    is_connected: true,
                 },
                 Player {
                     id: Uuid::from_u128(2),
@@ -872,6 +882,7 @@ mod tests {
                     position: Position::BigBlind,
                     has_taken_turn: bob_has_taken_turn,
                     sid: Sid::default(),
+                    is_connected: true,
                 },
             ],
             deck: Deck::new(),
@@ -882,7 +893,6 @@ mod tests {
                 players: HashSet::from([Uuid::from_u128(1), Uuid::from_u128(2)]),
             }],
             player_joining_next_round: Vec::new(),
-            player_leaving_next_round: Default::default(),
             player_in_turn: if player_in_turn == "Alice" {
                 Some(Uuid::from_u128(1))
             } else {

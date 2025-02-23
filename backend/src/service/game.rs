@@ -138,6 +138,14 @@ impl GameService {
         }
     }
 
+    fn join_player_to_ws_room(&self, room_id: Uuid, sid: Sid) {
+        if let Some(operator) = self.io.of("/game") {
+            if let Some(socket) = operator.get_socket(sid) {
+                socket.join(room_id.to_string());
+            }
+        }
+    }
+
     pub async fn join_player(
         &self,
         room_id: Uuid,
@@ -192,8 +200,9 @@ impl GameService {
             .wrap_err("User not found")?;
         ensure!(buy_in <= user.balance, Error::InsufficientBalance);
 
-        let action_required = (*room).join_player(Player::from_user(&user, buy_in as u32, sid))?;
+        let action_required = room.join_player(Player::from_user(&user, buy_in as u32, sid))?;
         let player_count = room.player_count();
+        self.join_player_to_ws_room(room_id, sid);
         self.service_action_required(action_required, room).await?;
         user.balance -= buy_in;
         self.user_repository

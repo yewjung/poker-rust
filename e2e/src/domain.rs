@@ -1,7 +1,7 @@
 use eyre::Result;
 
 use client::client::Client;
-use types::domain::{JoinGameRequest, User};
+use types::domain::User;
 
 use crate::util::register_user;
 

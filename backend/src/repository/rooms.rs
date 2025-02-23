@@ -14,7 +14,7 @@ use crate::error::Error;
 
 #[derive(Clone)]
 pub struct RoomRepository {
-    rooms: Arc<DashMap<Uuid, Room>>,
+    pub(crate) rooms: Arc<DashMap<Uuid, Room>>,
 }
 
 impl RoomRepository {
