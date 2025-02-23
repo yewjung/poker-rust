@@ -83,7 +83,7 @@ async fn main() -> Result<()> {
 
     // routes
     let router = Router::new()
-        .route("/", get(get_room_states))
+        .route("/games", get(get_room_states))
         .route("/signup", post(signup))
         .route("/login", post(login))
         .route("/profile", patch(update_profile))
