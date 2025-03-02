@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use names::Generator;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Flex, Layout, Rect};
 use ratatui::style::Modifier;
@@ -16,21 +17,28 @@ use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 
 use client::client::Client;
-use types::domain::{LoginRequest, SignupRequest};
+use types::domain::{LoginRequest, SignupRequest, UpdateProfileRequest};
 
-pub struct App {
+pub struct App<'a> {
     /// Is the application running?
     running: bool,
-    email_input: Input,
-    password_input: Input,
-    focus: Focus,
+    login_screen_data: LoginScreenData,
     client: Client,
     error_message: Option<ErrorMessage>,
     screen: Screen,
+    generator: Generator<'a>,
 }
 
-#[derive(Debug, PartialEq)]
-enum Focus {
+#[derive(Debug, Default)]
+struct LoginScreenData {
+    email_input: Input,
+    password_input: Input,
+    focus: LoginScreenFocus,
+}
+
+#[derive(Debug, PartialEq, Default)]
+enum LoginScreenFocus {
+    #[default]
     Email,
     Password,
     Login,
@@ -55,23 +63,22 @@ impl ErrorMessage {
     }
 }
 
-impl Default for App {
+impl Default for App<'_> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl App {
+impl App<'_> {
     /// Construct a new instance of [`App`].
     pub fn new() -> Self {
         Self {
             running: true,
-            email_input: Input::default(),
-            password_input: Input::default(),
-            focus: Focus::Email,
+            login_screen_data: Default::default(),
             client: Client::new(),
             error_message: None,
             screen: Screen::Login,
+            generator: Generator::default(),
         }
     }
 
@@ -148,15 +155,18 @@ impl App {
             .flex(Flex::Center)
             .areas(email);
         frame.render_widget(
-            Paragraph::new(self.email_input.value()).block(Block::bordered().title("Email")),
+            Paragraph::new(self.login_screen_data.email_input.value())
+                .block(Block::bordered().title("Email")),
             email,
         );
 
         let [password] = Layout::horizontal([Constraint::Max(50)])
             .flex(Flex::Center)
             .areas(password);
-        let password_text =
-            Span::styled(Masked::new(self.password_input.value(), '*'), Color::White);
+        let password_text = Span::styled(
+            Masked::new(self.login_screen_data.password_input.value(), '*'),
+            Color::White,
+        );
         frame.render_widget(
             Paragraph::new(password_text).block(Block::bordered().title("Password")),
             password,
@@ -165,15 +175,21 @@ impl App {
             Layout::horizontal(Constraint::from_percentages([25, 25, 25, 25])).areas(actions);
 
         frame.render_widget(
-            Paragraph::new(highlight("Login", self.focus == Focus::Login))
-                .centered()
-                .block(Block::bordered()),
+            Paragraph::new(highlight(
+                "Login",
+                self.login_screen_data.focus == LoginScreenFocus::Login,
+            ))
+            .centered()
+            .block(Block::bordered()),
             login,
         );
         frame.render_widget(
-            Paragraph::new(highlight("Signup", self.focus == Focus::Signup))
-                .centered()
-                .block(Block::bordered()),
+            Paragraph::new(highlight(
+                "Signup",
+                self.login_screen_data.focus == LoginScreenFocus::Signup,
+            ))
+            .centered()
+            .block(Block::bordered()),
             signup,
         );
         frame.render_widget(
@@ -187,16 +203,16 @@ impl App {
     }
 
     fn apply_cursor(&mut self, frame: &mut Frame, top: Rect, bottom: Rect) {
-        match self.focus {
-            Focus::Email => {
+        match self.login_screen_data.focus {
+            LoginScreenFocus::Email => {
                 frame.set_cursor_position((
-                    top.x + self.email_input.visual_cursor() as u16 + 1,
+                    top.x + self.login_screen_data.email_input.visual_cursor() as u16 + 1,
                     top.y + 1,
                 ));
             }
-            Focus::Password => {
+            LoginScreenFocus::Password => {
                 frame.set_cursor_position((
-                    bottom.x + self.password_input.visual_cursor() as u16 + 1,
+                    bottom.x + self.login_screen_data.password_input.visual_cursor() as u16 + 1,
                     bottom.y + 1,
                 ));
             }
@@ -209,7 +225,7 @@ impl App {
     /// If your application needs to perform work in between handling events, you can use the
     /// [`event::poll`] function to check if there are any events available with a timeout.
     async fn handle_crossterm_events(&mut self) -> Result<()> {
-        if event::poll(Duration::from_millis(100))? {
+        if event::poll(Duration::from_millis(16))? {
             let event = event::read()?;
             if let Event::Key(key_event) = event {
                 if let Err(e) = self.on_key_event(key_event).await {
@@ -222,6 +238,23 @@ impl App {
 
     /// Handles the key events and updates the state of [`App`].
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
+        match self.screen {
+            Screen::Login => self.on_login_screen_event(key).await?,
+            Screen::InGame => self.on_in_game_screen_event(key).await?,
+        }
+        Ok(())
+    }
+
+    async fn on_in_game_screen_event(&mut self, key: KeyEvent) -> Result<()> {
+        match (key.kind, key.modifiers, key.code) {
+            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Esc) => self.screen = Screen::Login,
+            (KeyEventKind::Press, KeyModifiers::CONTROL, KeyCode::Char('c')) => self.quit(),
+            _ => {}
+        }
+        Ok(())
+    }
+
+    async fn on_login_screen_event(&mut self, key: KeyEvent) -> Result<()> {
         match (key.kind, key.modifiers, key.code) {
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Esc)
             | (KeyEventKind::Press, KeyModifiers::CONTROL, KeyCode::Char('c')) => self.quit(),
@@ -229,59 +262,68 @@ impl App {
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Enter) => {
                 self.handle_enter().await?
             }
-            _ => match self.focus {
-                Focus::Email => {
-                    self.email_input.handle_event(&Event::Key(key));
+            _ => match self.login_screen_data.focus {
+                LoginScreenFocus::Email => {
+                    self.login_screen_data
+                        .email_input
+                        .handle_event(&Event::Key(key));
                 }
-                Focus::Password => {
-                    self.password_input.handle_event(&Event::Key(key));
+                LoginScreenFocus::Password => {
+                    self.login_screen_data
+                        .password_input
+                        .handle_event(&Event::Key(key));
                 }
-                Focus::Login => {}
-                Focus::Signup => {}
+                LoginScreenFocus::Login => {}
+                LoginScreenFocus::Signup => {}
             },
         }
         Ok(())
     }
 
     fn switch_focus(&mut self) {
-        match self.focus {
-            Focus::Email => {
-                self.focus = Focus::Password;
+        match self.login_screen_data.focus {
+            LoginScreenFocus::Email => {
+                self.login_screen_data.focus = LoginScreenFocus::Password;
             }
-            Focus::Password => {
-                self.focus = Focus::Login;
+            LoginScreenFocus::Password => {
+                self.login_screen_data.focus = LoginScreenFocus::Login;
             }
-            Focus::Login => {
-                self.focus = Focus::Signup;
+            LoginScreenFocus::Login => {
+                self.login_screen_data.focus = LoginScreenFocus::Signup;
             }
-            Focus::Signup => {
-                self.focus = Focus::Email;
+            LoginScreenFocus::Signup => {
+                self.login_screen_data.focus = LoginScreenFocus::Email;
             }
         }
     }
 
     async fn handle_enter(&mut self) -> Result<()> {
-        match self.focus {
-            Focus::Login => {
+        match self.login_screen_data.focus {
+            LoginScreenFocus::Login => {
                 self.client
                     .login(LoginRequest {
-                        email: self.email_input.value().to_string(),
-                        password: self.password_input.value().to_string(),
+                        email: self.login_screen_data.email_input.value().to_string(),
+                        password: self.login_screen_data.password_input.value().to_string(),
                     })
                     .await?;
                 self.screen = Screen::InGame;
             }
-            Focus::Signup => {
+            LoginScreenFocus::Signup => {
                 self.client
                     .signup(SignupRequest {
-                        email: self.email_input.value().to_string(),
-                        password: self.password_input.value().to_string(),
+                        email: self.login_screen_data.email_input.value().to_string(),
+                        password: self.login_screen_data.password_input.value().to_string(),
                     })
                     .await?;
                 self.client
                     .login(LoginRequest {
-                        email: self.email_input.value().to_string(),
-                        password: self.password_input.value().to_string(),
+                        email: self.login_screen_data.email_input.value().to_string(),
+                        password: self.login_screen_data.password_input.value().to_string(),
+                    })
+                    .await?;
+                self.client
+                    .update_profile(UpdateProfileRequest {
+                        username: self.generator.next().unwrap(),
                     })
                     .await?;
                 self.screen = Screen::InGame;

@@ -33,7 +33,7 @@ pub async fn register_user() -> Result<TestUser> {
         })
         .await?;
 
-    Ok(TestUser { user, client })
+    Ok(TestUser { client })
 }
 
 pub fn random_email() -> String {

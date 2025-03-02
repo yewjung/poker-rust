@@ -105,6 +105,7 @@ async fn test_join_game() -> Result<()> {
             buy_in: 100,
         })
         .await?;
+    sleep(Duration::from_secs(1)).await;
 
     // check if the player count is 1
     let rooms = user.client.get_rooms().await?;
@@ -127,6 +128,7 @@ async fn test_join_game() -> Result<()> {
             buy_in: 100,
         })
         .await?;
+    sleep(Duration::from_secs(1)).await;
     let rooms = new_user.client.get_rooms().await?;
     let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
     assert_eq!(room.player_count, 1);
@@ -135,7 +137,7 @@ async fn test_join_game() -> Result<()> {
     // make sure the player count is 0
     sleep(Duration::from_secs(1)).await;
     let new_user = TestUser::new().await?;
-    println!("new user: {}", new_user.user.id);
+    println!("new user: {}", new_user.user_id().unwrap());
     let rooms = new_user.client.get_rooms().await?;
     let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
     assert_eq!(room.player_count, 0);
@@ -145,9 +147,9 @@ async fn test_join_game() -> Result<()> {
 #[tokio::test]
 async fn test_2_players_join_game() -> Result<()> {
     let mut user1 = TestUser::new().await?;
-    println!("user1: {}", user1.user.id);
+    println!("user1: {}", user1.client.user.as_ref().unwrap().id);
     let mut user2 = TestUser::new().await?;
-    println!("user2: {}", user2.user.id);
+    println!("user2: {}", user2.client.user.as_ref().unwrap().id);
 
     let rooms = user1.client.get_rooms().await?;
 
@@ -160,6 +162,7 @@ async fn test_2_players_join_game() -> Result<()> {
             buy_in: 100,
         })
         .await?;
+    sleep(Duration::from_secs(1)).await;
 
     user2
         .client
@@ -168,6 +171,7 @@ async fn test_2_players_join_game() -> Result<()> {
             buy_in: 100,
         })
         .await?;
+    sleep(Duration::from_secs(1)).await;
 
     // check if the player count is 2
     let rooms = user1.client.get_rooms().await?;

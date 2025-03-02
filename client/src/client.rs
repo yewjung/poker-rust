@@ -1,6 +1,7 @@
 use eyre::{bail, Result};
 use futures_util::FutureExt;
 use lazy_static::lazy_static;
+use log::debug;
 use reqwest::Client as ReqwestClient;
 use reqwest::StatusCode;
 use rust_socketio::asynchronous::Client as SocketClient;
@@ -27,7 +28,7 @@ async fn update_state<T: for<'a> Deserialize<'a>>(
             .filter_map(|value| match serde_json::from_value(value) {
                 Ok(game_state) => Some(game_state),
                 Err(e) => {
-                    println!("Error deserializing: {:?}", e);
+                    debug!("Error deserializing: {:?}", e);
                     None
                 }
             })
@@ -47,10 +48,10 @@ async fn update_state<T: for<'a> Deserialize<'a>>(
 
 async fn default_callback(payload: Payload) {
     match payload {
-        Payload::Text(values) => println!("Received text: {:#?}", values),
-        Payload::Binary(bin_data) => println!("Received bytes: {:#?}", bin_data),
+        Payload::Text(values) => debug!("Received text: {:#?}", values),
+        Payload::Binary(bin_data) => debug!("Received bytes: {:#?}", bin_data),
         // This is deprecated use Payload::Text instead
-        Payload::String(str) => println!("Received str: {}", str),
+        Payload::String(str) => debug!("Received str: {}", str),
     }
 }
 
@@ -58,6 +59,7 @@ pub struct Client {
     pub client: ReqwestClient,
     pub ws_client: Option<SocketClient>,
     pub token: Option<String>,
+    pub user: Option<User>,
 }
 
 const BASE_URL: &str = "http://localhost:8080";
@@ -74,6 +76,7 @@ impl Client {
             client: reqwest::Client::new(),
             ws_client: None,
             token: None,
+            user: None,
         }
     }
     pub async fn signup(&self, request: SignupRequest) -> Result<()> {
@@ -99,7 +102,7 @@ impl Client {
         Ok(token)
     }
 
-    pub async fn update_profile(&self, request: UpdateProfileRequest) -> Result<User> {
+    pub async fn update_profile(&mut self, request: UpdateProfileRequest) -> Result<User> {
         let url = format!("{}/profile", BASE_URL);
         let token = self.token.clone().expect("No token");
         let response = self
@@ -110,10 +113,12 @@ impl Client {
             .send()
             .await?;
         let status = response.status();
-        match status {
-            StatusCode::OK => Ok(response.json().await?),
+        let user: User = match status {
+            StatusCode::OK => response.json().await?,
             _ => bail!(status),
-        }
+        };
+        self.user.replace(user.clone());
+        Ok(user)
     }
 
     pub async fn get_profile(&self) -> Result<User> {
@@ -168,7 +173,6 @@ impl Client {
                 .await
                 .expect("Connection failed"),
         );
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
     }
 
     pub async fn join_game(&mut self, payload: JoinGameRequest) -> Result<()> {
@@ -189,7 +193,6 @@ impl Client {
             .emit(event.as_ref(), json!(payload))
             .await
             .expect("Server unreachable");
-        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
         Ok(())
     }
