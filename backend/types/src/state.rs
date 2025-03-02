@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use crate::domain::room::{Hand, Player, Position, Room, Stage};
+use crate::room::{Hand, Player, Position, Room, Stage};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SharedGameState {
@@ -32,6 +32,10 @@ impl<T> Timestamped<T> {
             timestamp: Utc::now(),
             data,
         }
+    }
+
+    pub fn is_newer(&self, other: &Self) -> bool {
+        self.timestamp > other.timestamp
     }
 }
 

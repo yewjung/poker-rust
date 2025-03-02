@@ -9,3 +9,10 @@ edition = "2021"
 crossterm = "0.28.1"
 ratatui = "0.29.0"
 color-eyre = "0.6.3"
+ratatui_input = { git = "https://github.com/yewjung/ratatui_input", branch = "master" }
+tui-input = "0.11.1"
+client = { path = "../client" }
+tokio = "1.43.0"
+types = { path = "../backend/types" }
+chrono = "0.4.39"
+cli-log = "2.1.0"

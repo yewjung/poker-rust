@@ -16,8 +16,13 @@ use socketioxide::{extract::SocketRef, SocketIo};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 
-use crate::domain::state::SharedGameState;
-use crate::error::Error;
+use types::domain::{
+    ActionRequest, ClientEvent, JoinGameRequest, LoginRequest, ServiceEvent, SignupRequest,
+    UpdateProfileRequest,
+};
+use types::error::Error;
+use types::state::SharedGameState;
+
 use crate::extensions::ExtractUserFromToken;
 use crate::repository::auth::AuthUserRepository;
 use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
@@ -26,13 +31,8 @@ use crate::routes::Api;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
 use crate::service::users::UserService;
-use types::domain::{
-    ActionRequest, ClientEvent, JoinGameRequest, LoginRequest, ServiceEvent, SignupRequest,
-    UpdateProfileRequest,
-};
 
 mod domain;
-mod error;
 mod extensions;
 mod repository;
 mod routes;
@@ -206,7 +206,7 @@ async fn leave_game(
     HttpExtension(api): HttpExtension<Api>,
 ) {
     match api.game_service.leave_player(user_id).await {
-        Ok(_) => debug!("User {} left the room", user_id),
+        Ok(_) => debug!("User {} left socket connection", user_id),
         Err(e) => {
             let (_, message) = report_into_response(e);
             let _ = s.emit(ServiceEvent::ServiceError, &message);

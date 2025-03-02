@@ -9,8 +9,8 @@ use sqlx::PgPool;
 
 use types::domain::RoomInfo;
 
-use crate::domain::room::Room;
-use crate::error::Error;
+use types::error::Error;
+use types::room::Room;
 
 #[derive(Clone)]
 pub struct RoomRepository {

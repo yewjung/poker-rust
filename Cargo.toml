@@ -3,6 +3,7 @@ members = [
     "backend",
     "client",
     "e2e",
+    "ui"
     # Your existing Rust project
 ]
 resolver = "2"  # Ensures compatibility with Rust edition 2021

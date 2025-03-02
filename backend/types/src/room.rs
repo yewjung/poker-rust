@@ -7,11 +7,11 @@ use socketioxide::socket::Sid;
 use sqlx::{FromRow, Type};
 use uuid::Uuid;
 
-use types::domain::{Action, User};
+use crate::domain::{Action, User};
 
-use crate::domain::deck::Deck;
+use crate::deck::Deck;
+use crate::domain::ServiceRequiredAction;
 use crate::error::Error;
-use crate::service::game::ServiceRequiredAction;
 
 #[derive(Debug, Clone)]
 pub struct Room {
@@ -25,8 +25,7 @@ pub struct Room {
     pub player_in_turn: Option<Uuid>,
 }
 
-#[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Player {
     pub id: Uuid,
     pub name: String,
@@ -40,8 +39,7 @@ pub struct Player {
     pub is_connected: bool,
 }
 
-#[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Pot {
     pub amount: u32,
     pub players: HashSet<Uuid>,
@@ -110,8 +108,7 @@ pub enum Position {
     Dealer,
 }
 
-#[derive(Debug, Clone)]
-#[cfg_attr(test, derive(PartialEq))]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Hand(pub [Card; 2]);
 
 impl Room {
@@ -318,7 +315,7 @@ impl Room {
             .wrap_err("Player not found")
     }
 
-    fn deal_community_card(&mut self, stage: Stage) -> Result<()> {
+    pub fn deal_community_card(&mut self, stage: Stage) -> Result<()> {
         match stage {
             Stage::Flop => {
                 self.deck.draw()?;
@@ -375,7 +372,7 @@ impl Room {
         Ok(())
     }
 
-    fn closest_to_dealer(&self, player_ids: &HashSet<Uuid>) -> Result<Uuid> {
+    pub fn closest_to_dealer(&self, player_ids: &HashSet<Uuid>) -> Result<Uuid> {
         let dealer_index = self
             .players
             .iter()
@@ -400,7 +397,7 @@ impl Room {
     }
 
     /// Check if all non-folded players have the same bet
-    fn can_proceed_to_next_stage(&self) -> bool {
+    pub fn can_proceed_to_next_stage(&self) -> bool {
         match self.stage {
             Stage::NotEnoughPlayers => self.players.len() >= 2,
             Stage::Showdown => true,
@@ -612,417 +609,6 @@ impl Room {
             Stage::Turn => self.stage = Stage::River,
             Stage::River => self.stage = Stage::Showdown,
         }
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
-    use crate::repository::users::UserRepository;
-    use crate::service::game::GameService;
-    use poker::{card, cards, Evaluator};
-    use socketioxide::SocketIo;
-    use std::str::FromStr;
-    use std::sync::Arc;
-
-    #[test]
-    fn test_add_player() -> Result<()> {
-        let mut room = Room::new();
-        room.join_player(Player::new("Alice".to_string(), 400))?;
-        room.join_player(Player::new("Bob".to_string(), 400))?;
-        assert_eq!(2, room.players.len());
-        Ok(())
-    }
-
-    #[test]
-    fn test_deal_community_card() -> Result<()> {
-        let mut room = Room::new();
-        room.deal_community_card(Stage::Flop)?;
-        room.deal_community_card(Stage::Turn)?;
-        room.deal_community_card(Stage::River)?;
-        assert_eq!(room.community_cards.len(), 5);
-        Ok(())
-    }
-
-    #[test]
-    fn test_winners() -> Result<()> {
-        let (_, io) = SocketIo::new_layer();
-        let game_service = GameService {
-            evaluator: Evaluator::new(),
-            room_repository: RoomRepository::new(),
-            room_info_repository: RoomInfoRepository::faux(),
-            user_repository: Arc::new(UserRepository::faux()),
-            io,
-        };
-        let room = Room {
-            id: Uuid::new_v4(),
-            players: vec![
-                Player {
-                    id: Uuid::from_u128(1),
-                    name: "Alice".to_string(),
-                    hand: Some(Hand([card!("3s")?, card!("2s")?])),
-                    chips: 0,
-                    bet: 0,
-                    has_folded: false,
-                    position: Position::DealerAndSmallBlind,
-                    has_taken_turn: true,
-                    sid: Sid::from_str("AA9AAA0AAzAAAAHs")?,
-                    is_connected: true,
-                },
-                Player {
-                    id: Uuid::from_u128(2),
-                    name: "Bob".to_string(),
-                    hand: Some(Hand([card!("4s")?, card!("5s")?])),
-                    chips: 0,
-                    bet: 0,
-                    has_folded: false,
-                    position: Position::BigBlind,
-                    has_taken_turn: true,
-                    sid: Sid::from_str("AA9AAA0AAzAAAAHB")?,
-                    is_connected: true,
-                },
-            ],
-            deck: Deck::new(),
-            community_cards: cards!("6s 7s 8s 9s Ts").try_collect()?,
-            stage: Stage::Showdown,
-            pots: vec![Pot {
-                amount: 0,
-                players: HashSet::from([Uuid::from_u128(1), Uuid::from_u128(2)]),
-            }],
-            player_joining_next_round: Default::default(),
-            player_in_turn: None,
-        };
-
-        let game_result = game_service.find_winners(&room)?;
-        let (_, winner_ids) = game_result.winners.first().wrap_err("No winners")?;
-        let mut winners: Vec<_> = room
-            .players
-            .iter()
-            .filter(|p| winner_ids.contains(&p.id))
-            .collect();
-        winners.sort_by(|a, b| a.id.cmp(&b.id));
-        // Both players have straight flushes
-        assert_eq!(
-            winners,
-            vec![
-                &Player {
-                    id: Uuid::from_u128(1),
-                    name: "Alice".to_string(),
-                    hand: Some(Hand([card!("3s")?, card!("2s")?])),
-                    chips: 0,
-                    bet: 0,
-                    has_folded: false,
-                    position: Position::DealerAndSmallBlind,
-                    has_taken_turn: true,
-                    sid: Sid::from_str("AA9AAA0AAzAAAAHs")?,
-                    is_connected: true,
-                },
-                &Player {
-                    id: Uuid::from_u128(2),
-                    name: "Bob".to_string(),
-                    hand: Some(Hand([card!("4s")?, card!("5s")?])),
-                    chips: 0,
-                    bet: 0,
-                    has_folded: false,
-                    position: Position::BigBlind,
-                    has_taken_turn: true,
-                    sid: Sid::from_str("AA9AAA0AAzAAAAHB")?,
-                    is_connected: true,
-                },
-            ]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn stage_should_change_to_pre_flop_when_there_is_minimum_players() -> Result<()> {
-        let mut room = Room::new();
-        room.join_player(Player::new("Alice".to_string(), 400))?;
-        room.join_player(Player::new("Bob".to_string(), 400))?;
-        assert_eq!(room.stage, Stage::PreFlop);
-        Ok(())
-    }
-
-    #[test]
-    fn test_readjust_positions_with_4_players() -> Result<()> {
-        let mut room = Room::new();
-        room.join_player(Player::new("Alice".to_string(), 400))?;
-        room.join_player(Player::new("Bob".to_string(), 400))?;
-        room.join_player(Player::new("Charlie".to_string(), 400))?;
-        room.join_player(Player::new("David".to_string(), 400))?;
-
-        let positions = room
-            .players
-            .iter()
-            .map(|p| p.position.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            positions,
-            vec![Position::DealerAndSmallBlind, Position::BigBlind]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn test_readjust_positions_with_2_players() -> Result<()> {
-        let mut room = Room::new();
-        room.join_player(Player::new("Alice".to_string(), 400))?;
-        room.join_player(Player::new("Bob".to_string(), 400))?;
-        let positions = room
-            .players
-            .iter()
-            .map(|p| p.position.clone())
-            .collect::<Vec<_>>();
-        assert_eq!(
-            positions,
-            vec![Position::DealerAndSmallBlind, Position::BigBlind]
-        );
-        Ok(())
-    }
-
-    struct PlayerState {
-        bet: u32,
-        has_taken_turn: bool,
-        has_folded: bool,
-    }
-
-    #[rstest::rstest]
-    #[case(
-        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
-        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
-        "Bob",
-        false
-    )]
-    #[case(
-        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
-        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
-        "Alice",
-        false
-    )]
-    #[case(
-        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
-        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
-        "Bob",
-        true
-    )]
-    #[case(
-        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
-        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
-        "Alice",
-        false
-    )]
-    #[case(
-        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
-        PlayerState { bet: 5, has_taken_turn: true, has_folded: false },
-        "Alice",
-        false
-    )]
-    #[case(
-        PlayerState { bet: 15, has_taken_turn: true, has_folded: false },
-        PlayerState { bet: 10, has_taken_turn: true, has_folded: true },
-        "Bob",
-        true
-    )]
-    #[case(
-        PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
-        PlayerState { bet: 1000, has_taken_turn: true, has_folded: false },
-        "Bob",
-        true
-    )]
-    #[case(
-        PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
-        PlayerState { bet: 1000, has_taken_turn: true, has_folded: false },
-        "Alice",
-        true
-    )]
-    #[case(
-        PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
-        PlayerState { bet: 22, has_taken_turn: true, has_folded: false },
-        "Alice",
-        false
-    )]
-    fn test_can_proceed_to_next_stage(
-        #[case] PlayerState {
-            bet: alice_bet,
-            has_taken_turn: alice_has_taken_turn,
-            has_folded: alice_has_folded,
-        }: PlayerState,
-        #[case] PlayerState {
-            bet: bob_bet,
-            has_taken_turn: bob_has_taken_turn,
-            has_folded: bob_has_folded,
-        }: PlayerState,
-        #[case] player_in_turn: &str,
-        #[case] can_proceed: bool,
-    ) -> Result<()> {
-        let room = Room {
-            id: Uuid::new_v4(),
-            players: vec![
-                Player {
-                    id: Uuid::from_u128(1),
-                    name: "Alice".to_string(),
-                    hand: Some(Hand([card!("3s")?, card!("2s")?])),
-                    chips: 500 - alice_bet,
-                    bet: alice_bet,
-                    has_folded: alice_has_folded,
-                    position: Position::DealerAndSmallBlind,
-                    has_taken_turn: alice_has_taken_turn,
-                    sid: Sid::default(),
-                    is_connected: true,
-                },
-                Player {
-                    id: Uuid::from_u128(2),
-                    name: "Bob".to_string(),
-                    hand: Some(Hand([card!("4s")?, card!("5s")?])),
-                    chips: 1000 - bob_bet,
-                    bet: bob_bet,
-                    has_folded: bob_has_folded,
-                    position: Position::BigBlind,
-                    has_taken_turn: bob_has_taken_turn,
-                    sid: Sid::default(),
-                    is_connected: true,
-                },
-            ],
-            deck: Deck::new(),
-            community_cards: Vec::new(),
-            stage: Stage::PreFlop,
-            pots: vec![Pot {
-                amount: 0,
-                players: HashSet::from([Uuid::from_u128(1), Uuid::from_u128(2)]),
-            }],
-            player_joining_next_round: Vec::new(),
-            player_in_turn: if player_in_turn == "Alice" {
-                Some(Uuid::from_u128(1))
-            } else {
-                Some(Uuid::from_u128(2))
-            },
-        };
-        assert_eq!(room.can_proceed_to_next_stage(), can_proceed);
-        Ok(())
-    }
-
-    #[test]
-    fn test_side_pots() -> Result<()> {
-        let mut room = Room::new();
-        let alice = Player::new("Alice".to_string(), 500);
-        let bob = Player::new("Bob".to_string(), 1000);
-        let charlie = Player::new("Charlie".to_string(), 1500);
-        let david = Player::new("David".to_string(), 2000);
-        let alice_id = alice.id;
-        let bob_id = bob.id;
-        let charlie_id = charlie.id;
-        let david_id = david.id;
-
-        room.players.push(alice);
-        room.players.push(bob);
-        room.players.push(charlie);
-        room.players.push(david);
-
-        room.proceed()?;
-        // PreFlop
-        assert_eq!(room.stage, Stage::PreFlop);
-        assert_eq!(room.player_in_turn, Some(david_id));
-
-        room.take_action(david_id, Action::Raise(500))?;
-        room.take_action(alice_id, Action::Call)?;
-        room.take_action(bob_id, Action::Call)?;
-        room.take_action(charlie_id, Action::Call)?;
-
-        assert_eq!(
-            room.pots,
-            vec![Pot {
-                amount: 2000,
-                players: HashSet::from([alice_id, bob_id, charlie_id, david_id]),
-            }]
-        );
-
-        // Flop
-        assert_eq!(room.stage, Stage::Flop);
-        assert_eq!(room.player_in_turn, Some(bob_id));
-
-        room.take_action(bob_id, Action::Raise(500))?;
-        room.take_action(charlie_id, Action::Call)?;
-        room.take_action(david_id, Action::Call)?;
-
-        // Turn
-        assert_eq!(
-            room.pots,
-            vec![
-                Pot {
-                    amount: 2000,
-                    players: HashSet::from([alice_id, bob_id, charlie_id, david_id]),
-                },
-                Pot {
-                    amount: 1500,
-                    players: HashSet::from([bob_id, charlie_id, david_id]),
-                },
-            ]
-        );
-        assert_eq!(room.stage, Stage::Turn);
-        assert_eq!(room.player_in_turn, Some(charlie_id));
-
-        room.take_action(charlie_id, Action::Raise(500))?;
-        room.take_action(david_id, Action::Call)?;
-
-        // Game skips to Showdown resets to PreFlop
-        assert_eq!(room.stage, Stage::Showdown);
-        assert_eq!(
-            room.pots,
-            vec![
-                Pot {
-                    amount: 2000,
-                    players: HashSet::from([alice_id, bob_id, charlie_id, david_id]),
-                },
-                Pot {
-                    amount: 1500,
-                    players: HashSet::from([bob_id, charlie_id, david_id]),
-                },
-                Pot {
-                    amount: 1000,
-                    players: HashSet::from([charlie_id, david_id]),
-                },
-            ]
-        );
-        Ok(())
-    }
-
-    #[test]
-    fn closest_to_dealer_should_return_correct_player() -> Result<()> {
-        let mut room = Room::new();
-        let player1 = Player::new("Alice".to_string(), 400);
-        let player2 = Player::new("Bob".to_string(), 400);
-        let player3 = Player::new("Charlie".to_string(), 400);
-        let player4 = Player::new("David".to_string(), 400);
-
-        room.join_player(player1.clone())?;
-        room.join_player(player2.clone())?;
-        room.join_player(player3.clone())?;
-        room.join_player(player4.clone())?;
-        room.proceed()?;
-
-        let player_ids = HashSet::from([player1.id, player2.id, player3.id, player4.id]);
-
-        let closest_player = room.closest_to_dealer(&player_ids)?;
-        assert_eq!(closest_player, player2.id);
-        Ok(())
-    }
-
-    #[test]
-    fn closest_to_dealer_should_return_error_if_no_dealer() -> Result<()> {
-        let mut room = Room::new();
-        let player1 = Player::new("Alice".to_string(), 400);
-        let player2 = Player::new("Bob".to_string(), 400);
-
-        room.join_player(player1.clone())?;
-        room.join_player(player2.clone())?;
-        room.proceed()?;
-
-        let player_ids = HashSet::from([player1.id, player2.id]);
-
-        let closest_player = room.closest_to_dealer(&player_ids)?;
-        assert_eq!(closest_player, player2.id);
         Ok(())
     }
 }

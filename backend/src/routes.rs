@@ -8,11 +8,11 @@ use types::domain::{
 };
 
 use crate::domain::auth::AuthUser;
-use crate::domain::room::Room;
-use crate::error::Error;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
 use crate::service::users::UserService;
+use types::error::Error;
+use types::room::Room;
 
 #[derive(Clone)]
 pub struct Api {

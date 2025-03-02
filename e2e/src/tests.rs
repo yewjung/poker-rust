@@ -135,6 +135,7 @@ async fn test_join_game() -> Result<()> {
     // make sure the player count is 0
     sleep(Duration::from_secs(1)).await;
     let new_user = TestUser::new().await?;
+    println!("new user: {}", new_user.user.id);
     let rooms = new_user.client.get_rooms().await?;
     let room = rooms.iter().find(|r| r.room_id == room_id).unwrap();
     assert_eq!(room.player_count, 0);

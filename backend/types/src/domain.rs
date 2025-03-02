@@ -81,3 +81,10 @@ pub struct RoomInfo {
     pub room_id: Uuid,
     pub player_count: i32,
 }
+
+#[derive(Debug, PartialEq)]
+pub enum ServiceRequiredAction {
+    NoAction,
+    FindWinners,
+    PlayerReceiveCards,
+}

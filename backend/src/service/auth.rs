@@ -3,8 +3,8 @@ use eyre::{ensure, Result};
 use sqlx::types::Uuid;
 
 use crate::domain::auth::AuthUser;
-use crate::error::Error;
 use crate::repository::auth::AuthUserRepository;
+use types::error::Error;
 
 #[derive(Clone)]
 pub struct AuthService {
