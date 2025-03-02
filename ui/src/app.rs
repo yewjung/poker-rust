@@ -13,6 +13,7 @@ use ratatui::{
     DefaultTerminal, Frame,
 };
 use std::time::Duration;
+use tokio::try_join;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 
@@ -78,9 +79,10 @@ enum LoginScreenFocus {
 #[derive(Debug)]
 enum Screen {
     Login(LoginScreenData),
-    InGame,
+    InGame(InGameScreenData),
 }
 
+#[derive(Debug)]
 struct InGameScreenData {
     user: User,
     rooms: Vec<RoomInfo>,
@@ -133,7 +135,7 @@ impl App<'_> {
     fn draw(&mut self, frame: &mut Frame) {
         match self.screen {
             Screen::Login(ref screen_data) => self.draw_login_screen(screen_data, frame),
-            Screen::InGame => self.draw_game_screen(frame),
+            Screen::InGame(_) => self.draw_game_screen(frame),
         }
 
         if let Some(error_message) = &self.error_message {
@@ -264,7 +266,7 @@ impl App<'_> {
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         match self.screen {
             Screen::Login(_) => self.on_login_screen_event(key).await?,
-            Screen::InGame => self.on_in_game_screen_event(key).await?,
+            Screen::InGame(_) => self.on_in_game_screen_event(key).await?,
         }
         Ok(())
     }
@@ -303,6 +305,11 @@ impl App<'_> {
         }
     }
 
+    async fn game_screen_data(&self) -> Result<InGameScreenData> {
+        let (user, rooms) = try_join!(self.client.get_profile(), self.client.get_rooms())?;
+        Ok(InGameScreenData { user, rooms })
+    }
+
     async fn handle_enter(&mut self) -> Result<()> {
         if let Screen::Login(ref mut data) = self.screen {
             match data.focus {
@@ -313,7 +320,7 @@ impl App<'_> {
                             password: data.password_input.value().to_string(),
                         })
                         .await?;
-                    self.screen = Screen::InGame;
+                    self.screen = Screen::InGame(self.game_screen_data().await?);
                 }
                 LoginScreenFocus::Signup => {
                     self.client
@@ -333,7 +340,7 @@ impl App<'_> {
                             username: self.generator.next().unwrap(),
                         })
                         .await?;
-                    self.screen = Screen::InGame;
+                    self.screen = Screen::InGame(self.game_screen_data().await?);
                 }
                 _ => self.switch_focus(),
             }
