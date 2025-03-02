@@ -29,7 +29,7 @@ impl AuthUserRepository {
         .map_err(Into::into)
     }
 
-    pub async fn get(&self, email: String) -> Result<AuthUser> {
+    pub async fn get(&self, email: String) -> Result<Option<AuthUser>> {
         sqlx::query_as(
             r#"
             SELECT * FROM auth_users
@@ -37,7 +37,7 @@ impl AuthUserRepository {
             "#,
         )
         .bind(email)
-        .fetch_one(&self.pool)
+        .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
     }

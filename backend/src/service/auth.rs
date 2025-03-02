@@ -1,5 +1,5 @@
 use bcrypt::{hash, verify, DEFAULT_COST};
-use eyre::{ensure, Result};
+use eyre::{ensure, ContextCompat, Result};
 use sqlx::types::Uuid;
 
 use crate::domain::auth::AuthUser;
@@ -24,7 +24,11 @@ impl AuthService {
     }
 
     pub async fn login(&self, email: String, password: String) -> Result<Uuid> {
-        let user = self.auth_repository.get(email).await?;
+        let user = self
+            .auth_repository
+            .get(email)
+            .await?
+            .wrap_err(Error::UserNotFound)?;
         ensure!(
             verify(password, &user.hashed_password)?,
             Error::InvalidPassword

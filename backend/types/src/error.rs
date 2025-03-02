@@ -19,6 +19,8 @@ pub enum Error {
     InvalidRoomId,
     #[error("Player not in room")]
     NotInRoom,
+    #[error("User not found")]
+    UserNotFound,
 }
 
 impl Error {
@@ -32,6 +34,7 @@ impl Error {
             Error::RoomIsFull => StatusCode::BAD_REQUEST,
             Error::InvalidRoomId => StatusCode::NOT_FOUND,
             Error::NotInRoom => StatusCode::BAD_REQUEST,
+            Error::UserNotFound => StatusCode::NOT_FOUND,
         }
     }
 

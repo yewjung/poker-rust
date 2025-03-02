@@ -4,7 +4,7 @@ use eyre::{bail, ensure, ContextCompat, Report, Result};
 use poker::{box_cards, Card};
 use serde::{Deserialize, Serialize};
 use socketioxide::socket::Sid;
-use sqlx::{FromRow, Type};
+use sqlx::Type;
 use uuid::Uuid;
 
 use crate::domain::{Action, User};
