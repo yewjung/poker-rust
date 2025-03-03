@@ -6,13 +6,13 @@ use validator::Validate;
 use types::domain::{
     ActionRequest, JoinGameRequest, LoginRequest, SignupRequest, UpdateProfileRequest, User,
 };
+use types::error::Error;
+use types::room::Room;
 
 use crate::domain::auth::AuthUser;
 use crate::service::auth::AuthService;
 use crate::service::game::GameService;
 use crate::service::users::UserService;
-use types::error::Error;
-use types::room::Room;
 
 #[derive(Clone)]
 pub struct Api {
@@ -23,7 +23,9 @@ pub struct Api {
 
 impl Api {
     pub async fn signup(&self, request: SignupRequest) -> Result<()> {
-        request.validate()?;
+        request
+            .validate()
+            .map_err(|_| Error::InvalidEmailOrPassword)?;
         self.auth_service
             .signup(request.email, request.password)
             .await?;

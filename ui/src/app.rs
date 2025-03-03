@@ -383,11 +383,13 @@ impl Widget for ErrorPopup {
     }
 }
 
+const ERROR_DURATION: Duration = Duration::from_secs(3);
+
 impl From<String> for ErrorMessage {
     fn from(message: String) -> Self {
         Self {
             message,
-            expiry_time: Utc::now() + Duration::from_secs(3),
+            expiry_time: Utc::now() + ERROR_DURATION,
         }
     }
 }

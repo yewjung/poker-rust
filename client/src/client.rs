@@ -85,7 +85,7 @@ impl Client {
         let status = response.status();
         match status {
             StatusCode::CREATED => Ok(()),
-            _ => bail!(status),
+            _ => bail!(response.text().await?),
         }
     }
 
@@ -95,7 +95,7 @@ impl Client {
         let status = response.status();
         let token = match status {
             StatusCode::OK => response.text().await?,
-            _ => bail!(status),
+            _ => bail!(response.text().await?),
         };
         self.token = Some(token.clone());
         self.create_ws_connection().await;
@@ -115,7 +115,7 @@ impl Client {
         let status = response.status();
         let user: User = match status {
             StatusCode::OK => response.json().await?,
-            _ => bail!(status),
+            _ => bail!(response.text().await?),
         };
         self.user.replace(user.clone());
         Ok(user)
@@ -133,7 +133,7 @@ impl Client {
         let status = response.status();
         match status {
             StatusCode::OK => Ok(response.json().await?),
-            _ => bail!(status),
+            _ => bail!(response.text().await?),
         }
     }
 
@@ -149,7 +149,7 @@ impl Client {
         let status = response.status();
         match status {
             StatusCode::OK => Ok(response.json().await?),
-            _ => bail!(status),
+            _ => bail!(response.text().await?),
         }
     }
 

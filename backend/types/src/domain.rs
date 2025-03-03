@@ -22,6 +22,7 @@ pub struct ActionRequest {
 pub struct SignupRequest {
     #[validate(email)]
     pub email: String,
+    #[validate(length(min = 8))]
     pub password: String,
 }
 
