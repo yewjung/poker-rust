@@ -33,7 +33,9 @@ impl Api {
     }
 
     pub async fn login(&self, request: LoginRequest) -> Result<Uuid> {
-        request.validate()?;
+        request
+            .validate()
+            .map_err(|_| Error::InvalidEmailOrPassword)?;
         self.auth_service
             .login(request.email, request.password)
             .await
