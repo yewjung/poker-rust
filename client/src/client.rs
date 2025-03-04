@@ -62,7 +62,7 @@ pub struct Client {
     pub user: Option<User>,
 }
 
-const BASE_URL: &str = "http://localhost:8080";
+const BASE_URL: &str = "https://yj-api-poker.apps.bancuh.net";
 
 impl Default for Client {
     fn default() -> Self {
