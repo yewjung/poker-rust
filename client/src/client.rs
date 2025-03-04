@@ -162,7 +162,7 @@ impl Client {
         // Creates a GET request, upgrades and sends it.
         let token = self.token.clone().expect("No token");
         self.ws_client = Some(
-            ClientBuilder::new("http://localhost:8080/")
+            ClientBuilder::new(BASE_URL)
                 .namespace("/game")
                 .auth(token)
                 .on("hand", hand_callback)
