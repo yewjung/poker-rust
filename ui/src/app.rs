@@ -70,10 +70,14 @@ impl App {
                 frame.set_cursor_position(data.cursor_position);
             }
             Screen::InGame(ref mut data) => {
-                frame.render_stateful_widget(InGameScreenWidget, frame.area(), data)
+                frame.render_stateful_widget(InGameScreenWidget, frame.area(), data);
             }
         }
 
+        self.render_error_message(frame);
+    }
+
+    fn render_error_message(&mut self, frame: &mut Frame) {
         if let Some(error_message) = &self.error_message {
             if error_message.is_expired() {
                 self.error_message = None;
