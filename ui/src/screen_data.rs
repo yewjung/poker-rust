@@ -3,8 +3,9 @@ use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
-use ratatui::prelude::{Color, Line, Masked, Modifier, Span, Style};
-use ratatui::widgets::{Block, Paragraph, StatefulWidget, Widget};
+use ratatui::prelude::{Color, Masked, Modifier, Span, Style};
+use ratatui::text::Line;
+use ratatui::widgets::{Block, Paragraph, Row, StatefulWidget, Table, Widget};
 use tokio::try_join;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
@@ -248,14 +249,35 @@ impl StatefulWidget for InGameScreenWidget {
     type State = InGameScreenData;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        Paragraph::new("Welcome to the game!")
-            .block(
+        // Paragraph::new("Welcome to the game!")
+        //     .block(
+        //         Block::bordered()
+        //             .title("Game")
+        //             .title_bottom(Line::from("Press Esc to quit").centered()),
+        //     )
+        //     .centered()
+        //     .render(area, buf);
+
+        let rows = state
+            .rooms
+            .iter()
+            .map(|room| {
+                [
+                    room.room_id.to_string(),
+                    format!("{}/10", room.player_count),
+                ]
+            })
+            .map(Row::new)
+            .collect::<Vec<Row>>();
+        Widget::render(
+            Table::new(rows, Constraint::from_percentages([70, 30])).block(
                 Block::bordered()
                     .title("Game")
                     .title_bottom(Line::from("Press Esc to quit").centered()),
-            )
-            .centered()
-            .render(area, buf);
+            ),
+            area,
+            buf,
+        );
     }
 }
 
