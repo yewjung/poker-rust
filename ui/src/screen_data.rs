@@ -249,15 +249,6 @@ impl StatefulWidget for InGameScreenWidget {
     type State = InGameScreenData;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        // Paragraph::new("Welcome to the game!")
-        //     .block(
-        //         Block::bordered()
-        //             .title("Game")
-        //             .title_bottom(Line::from("Press Esc to quit").centered()),
-        //     )
-        //     .centered()
-        //     .render(area, buf);
-
         let rows = state
             .rooms
             .iter()
