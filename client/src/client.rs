@@ -1,3 +1,5 @@
+use std::sync::Mutex;
+
 use eyre::{bail, Result};
 use futures_util::FutureExt;
 use lazy_static::lazy_static;
@@ -10,6 +12,8 @@ use rust_socketio::Payload;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::RwLock;
+use rnglib::{RNG, Language};
+
 use types::domain::*;
 use types::state::{PlayerHand, SharedGameState, Timestamped};
 
@@ -60,6 +64,7 @@ pub struct Client {
     pub ws_client: Option<SocketClient>,
     pub token: Option<String>,
     pub user: Option<User>,
+    generator: RNG,
 }
 
 // const BASE_URL: &str = "https://yj-api-poker.apps.bancuh.net";
@@ -78,6 +83,7 @@ impl Client {
             ws_client: None,
             token: None,
             user: None,
+            generator: RNG::from(&Language::Elven),
         }
     }
     pub async fn signup(&self, request: SignupRequest) -> Result<()> {
@@ -120,6 +126,17 @@ impl Client {
         };
         self.user.replace(user.clone());
         Ok(user)
+    }
+
+    pub async fn update_profile_with_random_name(&mut self) -> Result<User> {
+        let first_name = self.generator.generate_name();
+        let last_name = self.generator.generate_name();
+
+        let username = format!("{} {}", first_name, last_name);
+        let request = UpdateProfileRequest {
+            username
+        };
+        self.update_profile(request).await
     }
 
     pub async fn get_profile(&self) -> Result<User> {

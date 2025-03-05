@@ -1,6 +1,8 @@
 pub use app::App;
 
 pub mod app;
+mod screen_data;
+
 use cli_log::*;
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
