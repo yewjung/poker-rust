@@ -7,13 +7,10 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifier
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
-use ratatui::text::Line;
-use ratatui::widgets::{Clear, Widget, Wrap, Block, Paragraph};
-use ratatui::{
-    DefaultTerminal, Frame,
-};
+use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
+use ratatui::{DefaultTerminal, Frame};
 
-use crate::screen_data::{LoginScreenWidget, OnKeyEvent, Screen, ScreenChange};
+use crate::screen_data::{InGameScreenWidget, LoginScreenWidget, OnKeyEvent, Screen, ScreenChange};
 
 pub struct App {
     /// Is the application running?
@@ -68,11 +65,13 @@ impl App {
     /// - <https://github.com/ratatui/ratatui/tree/master/examples>
     fn draw(&mut self, frame: &mut Frame) {
         match self.screen {
-            Screen::Login(ref mut screen_data) => {
-                frame.render_stateful_widget(LoginScreenWidget, frame.area(), screen_data);
-                frame.set_cursor_position(screen_data.cursor_position);
+            Screen::Login(ref mut data) => {
+                frame.render_stateful_widget(LoginScreenWidget, frame.area(), data);
+                frame.set_cursor_position(data.cursor_position);
             }
-            Screen::InGame(_) => self.draw_game_screen(frame),
+            Screen::InGame(ref mut data) => {
+                frame.render_stateful_widget(InGameScreenWidget, frame.area(), data)
+            }
         }
 
         if let Some(error_message) = &self.error_message {
@@ -94,19 +93,6 @@ impl App {
         }
     }
 
-    fn draw_game_screen(&mut self, frame: &mut Frame) {
-        frame.render_widget(
-            Paragraph::new("Welcome to the game!")
-                .block(
-                    Block::bordered()
-                        .title("Game")
-                        .title_bottom(Line::from("Press Esc to quit").centered()),
-                )
-                .centered(),
-            frame.area(),
-        );
-    }
-
     /// Reads the crossterm events and updates the state of [`App`].
     ///
     /// If your application needs to perform work in between handling events, you can use the
@@ -125,28 +111,19 @@ impl App {
 
     /// Handles the key events and updates the state of [`App`].
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
-        match self.screen {
-            Screen::Login(ref mut data) => match data.on_key_event(key, &mut self.client).await? {
-                ScreenChange::Quit => self.quit(),
-                ScreenChange::Switch(screen) => self.screen = screen,
-                ScreenChange::None => {}
-            },
-            Screen::InGame(_) => self.on_in_game_screen_event(key).await?,
+        let change = match self.screen {
+            Screen::Login(ref mut data) => data.on_key_event(key, &mut self.client).await?,
+            Screen::InGame(ref mut data) => data.on_key_event(key, &mut self.client).await?,
+        };
+
+        match change {
+            ScreenChange::Switch(screen) => self.screen = screen,
+            ScreenChange::Quit => self.quit(),
+            ScreenChange::None => {}
         }
+
         Ok(())
     }
-
-    async fn on_in_game_screen_event(&mut self, key: KeyEvent) -> Result<()> {
-        match (key.kind, key.modifiers, key.code) {
-            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Esc) => {
-                self.screen = Screen::Login(Default::default())
-            }
-            (KeyEventKind::Press, KeyModifiers::CONTROL, KeyCode::Char('c')) => self.quit(),
-            _ => {}
-        }
-        Ok(())
-    }
-
     /// Set running to false to quit the application.
     fn quit(&mut self) {
         self.running = false;

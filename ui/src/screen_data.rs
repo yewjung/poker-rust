@@ -3,7 +3,7 @@ use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
-use ratatui::prelude::{Color, Masked, Modifier, Span, Style};
+use ratatui::prelude::{Color, Line, Masked, Modifier, Span, Style};
 use ratatui::widgets::{Block, Paragraph, StatefulWidget, Widget};
 use tokio::try_join;
 use tui_input::backend::crossterm::EventHandler;
@@ -17,6 +17,12 @@ pub struct LoginScreenData {
     password_input: Input,
     focus: LoginScreenFocus,
     pub(crate) cursor_position: Position,
+}
+
+impl From<LoginScreenData> for ScreenChange {
+    fn from(data: LoginScreenData) -> Self {
+        ScreenChange::Switch(Screen::Login(data))
+    }
 }
 
 impl LoginScreenData {
@@ -233,5 +239,36 @@ impl OnKeyEvent for LoginScreenData {
                 Ok(ScreenChange::None)
             }
         }
+    }
+}
+
+pub struct InGameScreenWidget;
+
+impl StatefulWidget for InGameScreenWidget {
+    type State = InGameScreenData;
+
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        Paragraph::new("Welcome to the game!")
+            .block(
+                Block::bordered()
+                    .title("Game")
+                    .title_bottom(Line::from("Press Esc to quit").centered()),
+            )
+            .centered()
+            .render(area, buf);
+    }
+}
+
+#[async_trait::async_trait]
+impl OnKeyEvent for InGameScreenData {
+    async fn on_key_event(&mut self, key: KeyEvent, _client: &mut Client) -> Result<ScreenChange> {
+        let change = match (key.kind, key.modifiers, key.code) {
+            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Esc) => {
+                LoginScreenData::default().into()
+            }
+            (KeyEventKind::Press, KeyModifiers::CONTROL, KeyCode::Char('c')) => ScreenChange::Quit,
+            _ => ScreenChange::None,
+        };
+        Ok(change)
     }
 }

@@ -1,18 +1,16 @@
-use std::sync::Mutex;
-
 use eyre::{bail, Result};
 use futures_util::FutureExt;
 use lazy_static::lazy_static;
 use log::debug;
 use reqwest::Client as ReqwestClient;
 use reqwest::StatusCode;
+use rnglib::{Language, RNG};
 use rust_socketio::asynchronous::Client as SocketClient;
 use rust_socketio::asynchronous::ClientBuilder;
 use rust_socketio::Payload;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::RwLock;
-use rnglib::{RNG, Language};
 
 use types::domain::*;
 use types::state::{PlayerHand, SharedGameState, Timestamped};
@@ -133,9 +131,7 @@ impl Client {
         let last_name = self.generator.generate_name();
 
         let username = format!("{} {}", first_name, last_name);
-        let request = UpdateProfileRequest {
-            username
-        };
+        let request = UpdateProfileRequest { username };
         self.update_profile(request).await
     }
 
