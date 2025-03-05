@@ -263,7 +263,7 @@ impl StatefulWidget for InGameScreenWidget {
         Widget::render(
             Table::new(rows, Constraint::from_percentages([70, 30])).block(
                 Block::bordered()
-                    .title("Game")
+                    .title("Rooms")
                     .title_bottom(Line::from("Press Esc to quit").centered()),
             ),
             area,
