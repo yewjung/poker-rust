@@ -259,7 +259,7 @@ impl StatefulWidget for InGameScreenWidget {
                 ]
             })
             .map(Row::new)
-            .collect::<Vec<Row>>();
+            .collect::<Vec<_>>();
         Widget::render(
             Table::new(rows, Constraint::from_percentages([70, 30])).block(
                 Block::bordered()
