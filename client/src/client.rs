@@ -84,6 +84,16 @@ impl Client {
             generator: RNG::from(&Language::Elven),
         }
     }
+
+    pub fn new_with_token(token: String) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            ws_client: None,
+            token: Some(token),
+            user: None,
+            generator: RNG::from(&Language::Elven),
+        }
+    }
     pub async fn signup(&self, request: SignupRequest) -> Result<()> {
         let url = format!("{}/signup", BASE_URL);
         let response = self.client.post(url).json(&request).send().await?;
