@@ -1,4 +1,3 @@
-use std::cmp::PartialEq;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -12,13 +11,16 @@ use socketioxide::SocketIo;
 use tap::TapFallible;
 use uuid::Uuid;
 
-use types::domain::{Action, RoomInfo, ServiceEvent, ServiceRequiredAction, User};
-
-use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
-use crate::repository::users::UserRepository;
+use types::domain::{Action, RoomInfo, ServiceEvent, ServiceRequiredAction};
 use types::error::Error;
 use types::room::{Hand, Player, Room};
 use types::state::{PlayerHand, SharedGameState, Timestamped};
+
+use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
+use crate::repository::users::UserRepository;
+
+#[cfg(test)]
+use types::domain::User;
 
 #[derive(Clone)]
 pub struct GameService {
@@ -211,6 +213,7 @@ impl GameService {
         Ok(player_count)
     }
 
+    #[cfg(test)]
     pub async fn create_user(&self, name: String, balance: i64) -> Result<User> {
         self.user_repository.create_user(name, balance).await
     }
@@ -322,6 +325,8 @@ mod tests {
     use std::str::FromStr;
     use types::deck::Deck;
     use types::room::{Position, Pot, Stage};
+
+    use types::domain::User;
 
     lazy_static! {
         static ref users: HashMap<Uuid, User> = HashMap::from([

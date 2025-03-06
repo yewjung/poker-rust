@@ -1,12 +1,11 @@
 use client::client::Client;
 use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
-use keyring::Entry;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
 use ratatui::prelude::{Color, Masked, Modifier, Span, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Paragraph, Row, StatefulWidget, Table, TableState, Widget};
+use ratatui::widgets::{Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget};
 use tokio::try_join;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
@@ -249,6 +248,21 @@ impl StatefulWidget for InGameScreenWidget {
     type State = InGameScreenData;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let [user, rooms] =
+            Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(area);
+        let [user_left, user_right] =
+            Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).areas(user);
+        Paragraph::new(state.user.name.as_str())
+            .block(Block::bordered().title("Username"))
+            .render(user_left, buf);
+        Paragraph::new(state.user.balance.to_string())
+            .block(Block::bordered().title("Balance"))
+            .render(user_right, buf);
+        let header = ["Room", "Player Count"]
+            .into_iter()
+            .map(Cell::from)
+            .collect::<Row>()
+            .height(1);
         let selected_row_style = Style::default().add_modifier(Modifier::REVERSED);
         let rows = state
             .rooms
@@ -267,8 +281,9 @@ impl StatefulWidget for InGameScreenWidget {
                     .title(Line::from("Rooms").centered())
                     .title_bottom(Line::from("Press Esc to quit").centered()),
             )
-            .row_highlight_style(selected_row_style);
-        StatefulWidget::render(table, area, buf, &mut state.table_state);
+            .row_highlight_style(selected_row_style)
+            .header(header);
+        StatefulWidget::render(table, rooms, buf, &mut state.table_state);
     }
 }
 

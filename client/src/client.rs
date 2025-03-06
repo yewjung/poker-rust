@@ -48,6 +48,7 @@ async fn update_state<T: for<'a> Deserialize<'a>>(
     };
 }
 
+#[allow(deprecated)]
 async fn default_callback(payload: Payload) {
     match payload {
         Payload::Text(values) => debug!("Received text: {:#?}", values),

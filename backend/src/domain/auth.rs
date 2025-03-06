@@ -3,6 +3,7 @@ use sqlx::types::Uuid;
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, FromRow)]
+#[allow(dead_code)]
 pub struct AuthUser {
     pub id: Uuid,
     pub email: String,

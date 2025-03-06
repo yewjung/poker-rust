@@ -18,6 +18,7 @@ impl UserRepository {
         Self { pool }
     }
 
+    #[cfg(test)]
     pub async fn create_user(&self, name: String, balance: i64) -> Result<User> {
         sqlx::query_as(
             r#"
@@ -61,22 +62,6 @@ impl UserRepository {
         .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)
-    }
-
-    pub async fn update(&mut self, id: Uuid, user: User) -> Result<()> {
-        sqlx::query(
-            r#"
-            UPDATE users
-            SET name = $1, balance = $2
-            WHERE id = $3
-            "#,
-        )
-        .bind(&user.name)
-        .bind(user.balance)
-        .bind(id)
-        .execute(&self.pool)
-        .await?;
-        Ok(())
     }
 
     pub async fn update_balance_and_room(

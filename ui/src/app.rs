@@ -4,7 +4,6 @@ use chrono::{DateTime, Utc};
 use client::client::Client;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyEvent};
-use keyring::Entry;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};

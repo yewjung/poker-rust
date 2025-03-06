@@ -3,12 +3,10 @@ use std::sync::Arc;
 use dashmap::mapref::one::RefMut;
 use dashmap::DashMap;
 use eyre::{bail, Result};
-use log::debug;
 use sqlx::types::Uuid;
 use sqlx::PgPool;
 
 use types::domain::RoomInfo;
-
 use types::error::Error;
 use types::room::Room;
 
