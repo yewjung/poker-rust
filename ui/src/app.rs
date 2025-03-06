@@ -4,13 +4,17 @@ use chrono::{DateTime, Utc};
 use client::client::Client;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyEvent};
+use keyring::Entry;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 use ratatui::{DefaultTerminal, Frame};
 
-use crate::screen_data::{InGameScreenWidget, LoginScreenWidget, OnKeyEvent, Screen, ScreenChange};
+use crate::screen_data::{
+    game_screen_data, InGameScreenWidget, LoginScreenWidget, OnKeyEvent, Screen, ScreenChange,
+};
+use crate::TOKEN_MANAGER;
 
 pub struct App {
     /// Is the application running?
@@ -31,21 +35,34 @@ impl ErrorMessage {
     }
 }
 
-impl Default for App {
-    fn default() -> Self {
-        Self::new()
-    }
+fn get_token() -> Result<String> {
+    TOKEN_MANAGER.get_password().map_err(Into::into)
 }
 
 impl App {
     /// Construct a new instance of [`App`].
-    pub fn new() -> Self {
-        Self {
-            running: true,
-            client: Client::new(),
-            error_message: None,
-            screen: Screen::Login(Default::default()),
-        }
+    pub async fn new() -> Result<Self> {
+        let token = get_token().ok();
+        let app = match token {
+            Some(token) => {
+                let mut client = Client::new_with_token(token);
+                client.create_ws_connection().await;
+                let game_data = game_screen_data(&mut client).await?;
+                Self {
+                    running: true,
+                    client,
+                    error_message: None,
+                    screen: Screen::InGame(game_data),
+                }
+            }
+            None => Self {
+                running: true,
+                client: Client::new(),
+                error_message: None,
+                screen: Screen::Login(Default::default()),
+            },
+        };
+        Ok(app)
     }
 
     /// Run the application's main loop.

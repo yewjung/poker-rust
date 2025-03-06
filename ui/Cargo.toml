@@ -16,3 +16,5 @@ types = { path = "../backend/types" }
 chrono = "0.4.39"
 cli-log = "2.1.0"
 async-trait = "0.1.86"
+lazy_static = "1.5.0"
+keyring = { version = "3.6.2", features = ["apple-native", "windows-native", "sync-secret-service"]}

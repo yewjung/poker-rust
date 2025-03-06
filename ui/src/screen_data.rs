@@ -1,15 +1,17 @@
 use client::client::Client;
 use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use keyring::Entry;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
 use ratatui::prelude::{Color, Masked, Modifier, Span, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Paragraph, Row, StatefulWidget, Table, Widget};
+use ratatui::widgets::{Block, Paragraph, Row, StatefulWidget, Table, TableState, Widget};
 use tokio::try_join;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 
+use crate::TOKEN_MANAGER;
 use types::domain::{LoginRequest, RoomInfo, SignupRequest, User};
 
 #[derive(Debug, Default)]
@@ -56,21 +58,17 @@ impl LoginScreenData {
         }
     }
 
-    async fn game_screen_data(&self, client: &mut Client) -> Result<InGameScreenData> {
-        let (user, rooms) = try_join!(client.get_profile(), client.get_rooms())?;
-        Ok(InGameScreenData { user, rooms })
-    }
-
     async fn handle_enter(&mut self, client: &mut Client) -> Result<ScreenChange> {
         let change = match self.focus {
             LoginScreenFocus::Login => {
-                client
+                let token = client
                     .login(LoginRequest {
                         email: self.email_input.value().to_string(),
                         password: self.password_input.value().to_string(),
                     })
                     .await?;
-                self.game_screen_data(client).await?.into()
+                TOKEN_MANAGER.set_password(&token)?;
+                game_screen_data(client).await?.into()
             }
             LoginScreenFocus::Signup => {
                 client
@@ -79,14 +77,15 @@ impl LoginScreenData {
                         password: self.password_input.value().to_string(),
                     })
                     .await?;
-                client
+                let token = client
                     .login(LoginRequest {
                         email: self.email_input.value().to_string(),
                         password: self.password_input.value().to_string(),
                     })
                     .await?;
+                TOKEN_MANAGER.set_password(&token)?;
                 client.update_profile_with_random_name().await?;
-                self.game_screen_data(client).await?.into()
+                game_screen_data(client).await?.into()
             }
             _ => {
                 self.switch_focus();
@@ -207,6 +206,7 @@ pub enum Screen {
 pub struct InGameScreenData {
     user: User,
     rooms: Vec<RoomInfo>,
+    table_state: TableState,
 }
 
 impl From<InGameScreenData> for ScreenChange {
@@ -249,6 +249,7 @@ impl StatefulWidget for InGameScreenWidget {
     type State = InGameScreenData;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let selected_row_style = Style::default().add_modifier(Modifier::REVERSED);
         let rows = state
             .rooms
             .iter()
@@ -260,15 +261,14 @@ impl StatefulWidget for InGameScreenWidget {
             })
             .map(Row::new)
             .collect::<Vec<_>>();
-        Widget::render(
-            Table::new(rows, Constraint::from_percentages([70, 30])).block(
+        let table = Table::new(rows, Constraint::from_percentages([70, 30]))
+            .block(
                 Block::bordered()
                     .title(Line::from("Rooms").centered())
                     .title_bottom(Line::from("Press Esc to quit").centered()),
-            ),
-            area,
-            buf,
-        );
+            )
+            .row_highlight_style(selected_row_style);
+        StatefulWidget::render(table, area, buf, &mut state.table_state);
     }
 }
 
@@ -284,4 +284,13 @@ impl OnKeyEvent for InGameScreenData {
         };
         Ok(change)
     }
+}
+
+pub async fn game_screen_data(client: &mut Client) -> Result<InGameScreenData> {
+    let (user, rooms) = try_join!(client.get_profile(), client.get_rooms())?;
+    Ok(InGameScreenData {
+        user,
+        rooms,
+        table_state: TableState::default().with_selected(0),
+    })
 }
