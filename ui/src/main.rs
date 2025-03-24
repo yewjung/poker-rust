@@ -4,9 +4,9 @@ pub mod app;
 mod screen_data;
 
 use cli_log::*;
+use common::txt_to_hashmap;
 use keyring::Entry;
 use lazy_static::lazy_static;
-use common::txt_to_hashmap;
 
 txt_to_hashmap!();
 
@@ -18,10 +18,6 @@ lazy_static! {
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     init_cli_log!("poker");
-    debug!("len: {}", IMAGE_CACHE.len());
-    for key in IMAGE_CACHE.keys() {
-        debug!("{}", key);
-    }
     color_eyre::install()?;
     let terminal = ratatui::init();
     let result = App::new().await?.run(terminal).await;
@@ -31,8 +27,8 @@ async fn main() -> color_eyre::Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
     use crate::IMAGE_CACHE;
+    use std::fs;
 
     #[test]
     fn test_txt_to_hashmap() {
