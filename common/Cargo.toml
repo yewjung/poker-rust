@@ -8,3 +8,5 @@ proc-macro = true
 
 [dependencies]
 quote = "1.0"
+log = "0.4.27"
+cli-log = "2.1.0"

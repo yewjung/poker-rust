@@ -25,11 +25,13 @@ artem = "3.0.0"
 poker = "0.6.4"
 image = "0.25.5"
 common = { path = "../common" }
+log = "0.4.27"
 
 [build-dependencies]
 artem = "3.0.0"
 poker = "0.6.4"
 image = "0.25.5"
+
 
 
 
