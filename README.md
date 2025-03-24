@@ -40,3 +40,8 @@ stateDiagram-v2
     new_game --> PRE_FLOP: if at least 2 players are still in the game
     new_game --> NOT_ENOUGH_PLAYERS: otherwise
 ```
+
+### Run server without Docker
+```bash
+DATABASE_URL=postgres://user:password@localhost:5432/my_database RUST_LOG=debug cargo run
+```

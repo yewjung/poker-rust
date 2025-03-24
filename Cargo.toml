@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "backend",
-    "client",
+    "client", "common",
     "e2e",
     "ui"
     # Your existing Rust project

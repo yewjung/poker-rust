@@ -85,20 +85,20 @@ impl UserRepository {
         Ok(())
     }
 
-    pub async fn update_player_room(
+    pub async fn remove_player_and_reimburse_chips(
         &self,
         user_id: Uuid,
-        room_id: Option<Uuid>,
+        reimburse_chips: i64,
     ) -> Result<Option<User>> {
         sqlx::query_as(
             r#"
             UPDATE users
-            SET current_room = $1
+            SET current_room = NULL, balance = balance + $1
             WHERE id = $2
             RETURNING *
             "#,
         )
-        .bind(room_id)
+        .bind(reimburse_chips)
         .bind(user_id)
         .fetch_optional(&self.pool)
         .await

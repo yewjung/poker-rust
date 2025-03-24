@@ -58,6 +58,9 @@ async fn main() -> Result<()> {
     let user_repository = Arc::new(UserRepository::new(pool.clone()));
     let auth_repository = AuthUserRepository::new(pool.clone());
 
+    // zero out all player counts
+    room_info_repository.zero_all_player_counts().await?;
+
     // setting up websocket
     let (socket_layer, io) = SocketIo::new_layer();
 

@@ -99,4 +99,16 @@ impl RoomInfoRepository {
         .await?;
         tx.commit().await.map_err(Into::into)
     }
+
+    pub async fn zero_all_player_counts(&self) -> Result<()> {
+        sqlx::query(
+            r#"
+            UPDATE room_info
+            SET player_count = 0
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
 }

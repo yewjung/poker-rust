@@ -1,17 +1,31 @@
-use client::client::Client;
+use std::iter::zip;
+use std::time::Duration;
+
+use ansi_to_tui::IntoText;
+use chrono::{DateTime, Utc};
+use client::client::{Client, GAME_STATE, HAND_STATE};
+use color_eyre::eyre::ContextCompat;
 use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Constraint, Flex, Layout, Position, Rect};
+use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
 use ratatui::prelude::{Color, Masked, Modifier, Span, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget};
+use ratatui::widgets::{
+    Block, BorderType, Cell, Paragraph, Row, StatefulWidget, Table, TableState, Widget,
+};
+use tokio::time::sleep;
 use tokio::try_join;
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 
-use crate::TOKEN_MANAGER;
-use types::domain::{LoginRequest, RoomInfo, SignupRequest, User};
+use types::domain::{JoinGameRequest, LoginRequest, RoomInfo, SignupRequest, User};
+use types::error::Error;
+use types::room::MAX_NUM_OF_PLAYERS;
+use types::state::{HandState, PlayerHand, PlayerState, SerdeCard, SharedGameState};
+use uuid::Uuid;
+
+use crate::{IMAGE_CACHE, TOKEN_MANAGER};
 
 #[derive(Debug, Default)]
 pub struct LoginScreenData {
@@ -198,19 +212,74 @@ pub enum ScreenChange {
 #[derive(Debug)]
 pub enum Screen {
     Login(LoginScreenData),
-    InGame(InGameScreenData),
+    Lobby(LobbyScreenData),
+    InGame(InGameData),
 }
 
 #[derive(Debug)]
-pub struct InGameScreenData {
+pub struct LobbyScreenData {
     user: User,
     rooms: Vec<RoomInfo>,
     table_state: TableState,
+    next_refresh_time: DateTime<Utc>,
 }
 
-impl From<InGameScreenData> for ScreenChange {
-    fn from(data: InGameScreenData) -> Self {
-        ScreenChange::Switch(Screen::InGame(data))
+impl LobbyScreenData {
+    pub async fn refresh(&mut self, client: &mut Client) -> Result<()> {
+        if Utc::now() > self.next_refresh_time {
+            let data = game_screen_data(client).await?;
+            self.user = data.user;
+            self.rooms = data.rooms;
+            self.next_refresh_time = data.next_refresh_time;
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub struct InGameData {
+    user_id: Uuid,
+    hand: PlayerHand,
+    game: SharedGameState,
+}
+
+pub fn in_game_data(user_id: Uuid, hand: PlayerHand, game: SharedGameState) -> InGameData {
+    InGameData {
+        user_id,
+        hand,
+        game,
+    }
+}
+
+impl From<LobbyScreenData> for ScreenChange {
+    fn from(data: LobbyScreenData) -> Self {
+        ScreenChange::Switch(Screen::Lobby(data))
+    }
+}
+
+#[async_trait::async_trait]
+pub trait OnTick {
+    async fn on_tick(&mut self, client: &mut Client) -> Result<()>;
+}
+
+#[async_trait::async_trait]
+impl OnTick for LoginScreenData {
+    async fn on_tick(&mut self, _client: &mut Client) -> Result<()> {
+        Ok(())
+    }
+}
+
+#[async_trait::async_trait]
+impl OnTick for LobbyScreenData {
+    async fn on_tick(&mut self, client: &mut Client) -> Result<()> {
+        self.refresh(client).await
+    }
+}
+
+#[async_trait::async_trait]
+impl OnTick for InGameData {
+    async fn on_tick(&mut self, _client: &mut Client) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -242,10 +311,10 @@ impl OnKeyEvent for LoginScreenData {
     }
 }
 
-pub struct InGameScreenWidget;
+pub struct LobbyWidget;
 
-impl StatefulWidget for InGameScreenWidget {
-    type State = InGameScreenData;
+impl StatefulWidget for LobbyWidget {
+    type State = LobbyScreenData;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let [user, rooms] =
@@ -270,7 +339,7 @@ impl StatefulWidget for InGameScreenWidget {
             .map(|room| {
                 [
                     room.room_id.to_string(),
-                    format!("{}/10", room.player_count),
+                    format!("{}/{}", room.player_count, MAX_NUM_OF_PLAYERS),
                 ]
             })
             .map(Row::new)
@@ -288,11 +357,83 @@ impl StatefulWidget for InGameScreenWidget {
 }
 
 #[async_trait::async_trait]
-impl OnKeyEvent for InGameScreenData {
-    async fn on_key_event(&mut self, key: KeyEvent, _client: &mut Client) -> Result<ScreenChange> {
+impl OnKeyEvent for LobbyScreenData {
+    async fn on_key_event(&mut self, key: KeyEvent, client: &mut Client) -> Result<ScreenChange> {
         let change = match (key.kind, key.modifiers, key.code) {
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Esc) => {
                 LoginScreenData::default().into()
+            }
+            (KeyEventKind::Press, KeyModifiers::CONTROL, KeyCode::Char('c')) => ScreenChange::Quit,
+            (
+                KeyEventKind::Press,
+                KeyModifiers::NONE,
+                KeyCode::Down | KeyCode::Right | KeyCode::Tab,
+            ) => {
+                self.table_state.select_next();
+                ScreenChange::None
+            }
+            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Up | KeyCode::Left) => {
+                self.table_state.select_previous();
+                ScreenChange::None
+            }
+            // refresh data
+            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Char('r')) => {
+                *self = game_screen_data(client).await?;
+                ScreenChange::None
+            }
+            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Enter) => {
+                let room = self
+                    .table_state
+                    .selected()
+                    .and_then(|selected| self.rooms.get(selected));
+
+                let room = room.wrap_err(Error::NoRoomFound)?;
+                client
+                    .join_game(JoinGameRequest {
+                        room_id: room.room_id,
+                        buy_in: 100,
+                    })
+                    .await?;
+
+                // poll GAME_STATE until it is Some
+                loop {
+                    if let Ok(Some(game_state)) = GAME_STATE.try_read().as_deref() {
+                        let hand = HAND_STATE.read().await;
+                        return Ok(ScreenChange::Switch(Screen::InGame(InGameData {
+                            user_id: client.user.as_ref().map(|u| u.id).wrap_err("No user")?,
+                            hand: hand
+                                .as_ref()
+                                .map_or(PlayerHand::default(), |h| h.data.clone()),
+                            game: game_state.data.clone(),
+                        })));
+                    } else {
+                        sleep(Duration::from_secs(1)).await;
+                    }
+                }
+            }
+            _ => ScreenChange::None,
+        };
+        Ok(change)
+    }
+}
+
+pub async fn game_screen_data(client: &mut Client) -> Result<LobbyScreenData> {
+    let (user, rooms) = try_join!(client.get_profile(), client.get_rooms())?;
+    Ok(LobbyScreenData {
+        user,
+        rooms,
+        table_state: TableState::default().with_selected(0),
+        next_refresh_time: Utc::now() + Duration::from_secs(5),
+    })
+}
+
+#[async_trait::async_trait]
+impl OnKeyEvent for InGameData {
+    async fn on_key_event(&mut self, key: KeyEvent, client: &mut Client) -> Result<ScreenChange> {
+        let change = match (key.kind, key.modifiers, key.code) {
+            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Esc) => {
+                client.leave().await?;
+                game_screen_data(client).await?.into()
             }
             (KeyEventKind::Press, KeyModifiers::CONTROL, KeyCode::Char('c')) => ScreenChange::Quit,
             _ => ScreenChange::None,
@@ -301,11 +442,77 @@ impl OnKeyEvent for InGameScreenData {
     }
 }
 
-pub async fn game_screen_data(client: &mut Client) -> Result<InGameScreenData> {
-    let (user, rooms) = try_join!(client.get_profile(), client.get_rooms())?;
-    Ok(InGameScreenData {
-        user,
-        rooms,
-        table_state: TableState::default().with_selected(0),
-    })
+pub struct InGameWidget;
+
+impl StatefulWidget for InGameWidget {
+    type State = InGameData;
+
+    fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
+        let [top, bottom, _] =
+            Layout::vertical(Constraint::from_percentages([70, 15, 15])).areas(area);
+        let community_card_areas: [_; 5] =
+            Layout::horizontal(Constraint::from_ratios([(1, 5); 5])).areas(top);
+        let hand_areas: [_; MAX_NUM_OF_PLAYERS] = Layout::horizontal(Constraint::from_ratios(
+            [(1, MAX_NUM_OF_PLAYERS as u32); MAX_NUM_OF_PLAYERS],
+        ))
+        .areas(bottom);
+        // community cards
+        for (card_area, card) in zip(community_card_areas, &state.game.community_cards) {
+            card_paragraph(card_area, card, buf);
+        }
+
+        for (hand_area, player_state) in zip(hand_areas, &mut state.game.players) {
+            if player_state.id == state.user_id
+                && !matches!(player_state.hand, HandState::Revealed(_))
+            {
+                player_state.reveal(state.hand.clone());
+            }
+            let is_in_turn = state
+                .game
+                .current_player
+                .is_some_and(|curr| curr == player_state.id);
+            hand_paragraph(hand_area, player_state, is_in_turn, buf);
+        }
+    }
+}
+
+fn hand_paragraph(area: Rect, state: &PlayerState, in_turn: bool, buf: &mut Buffer) {
+    let mut outer_block = Block::bordered()
+        .title(Line::from(state.top_title()).centered())
+        .title_bottom(Line::from(state.bottom_title()).left_aligned())
+        .border_type(BorderType::Rounded);
+
+    if in_turn {
+        outer_block = outer_block.border_style(Style::default().add_modifier(Modifier::SLOW_BLINK));
+    }
+
+    let inner_block_area = outer_block.inner(area);
+    let [_, bet_area, chips_area] = Layout::vertical([
+        Constraint::Min(0),
+        Constraint::Length(1),
+        Constraint::Length(1),
+    ])
+    .areas(inner_block_area);
+    Paragraph::new(state.hand.line())
+        .block(outer_block)
+        .centered()
+        .render(area, buf);
+    Paragraph::new(state.bet_display().right_aligned()).render(bet_area, buf);
+    Paragraph::new(state.chips_display().right_aligned()).render(chips_area, buf);
+}
+
+fn card_paragraph(area: Rect, card: &SerdeCard, buf: &mut Buffer) {
+    let image_text = IMAGE_CACHE.get(&card.rank_suit_string());
+    let paragraph = image_text
+        .and_then(|c| c.into_text().ok())
+        .map_or(Paragraph::new(card.rank_suit_string()), Paragraph::new);
+    paragraph
+        .block(
+            Block::bordered()
+                .title(card.span())
+                .title_bottom(card.span())
+                .title_alignment(Alignment::Center)
+                .border_type(BorderType::Rounded),
+        )
+        .render(area, buf);
 }

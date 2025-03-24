@@ -1,4 +1,6 @@
-use eyre::{bail, Result};
+use std::fmt::Debug;
+
+use eyre::{bail, ContextCompat, Result};
 use futures_util::FutureExt;
 use lazy_static::lazy_static;
 use log::debug;
@@ -16,11 +18,11 @@ use types::domain::*;
 use types::state::{PlayerHand, SharedGameState, Timestamped};
 
 lazy_static! {
-    static ref GAME_STATE: RwLock<Option<Timestamped<SharedGameState>>> = RwLock::new(None);
-    static ref HAND_STATE: RwLock<Option<Timestamped<PlayerHand>>> = RwLock::new(None);
+    pub static ref GAME_STATE: RwLock<Option<Timestamped<SharedGameState>>> = RwLock::new(None);
+    pub static ref HAND_STATE: RwLock<Option<Timestamped<PlayerHand>>> = RwLock::new(None);
 }
 
-async fn update_state<T: for<'a> Deserialize<'a>>(
+async fn update_state<T: for<'a> Deserialize<'a> + Debug>(
     payload: Payload,
     state: &RwLock<Option<Timestamped<T>>>,
 ) {
@@ -36,6 +38,7 @@ async fn update_state<T: for<'a> Deserialize<'a>>(
             })
             .collect();
         if let Some(new_state) = states.into_iter().next() {
+            debug!("New state: {:#?}", new_state);
             let mut state_lock = state.write().await;
             if let Some(ref current_state) = *state_lock {
                 new_state.is_newer(current_state).then(|| {
@@ -82,19 +85,23 @@ impl Client {
             ws_client: None,
             token: None,
             user: None,
-            generator: RNG::from(&Language::Elven),
+            generator: RNG::from(&Language::Roman),
         }
     }
 
-    pub fn new_with_token(token: String) -> Self {
-        Self {
+    pub async fn new_with_token(token: String) -> Result<Self> {
+        let mut s = Self {
             client: reqwest::Client::new(),
             ws_client: None,
             token: Some(token),
             user: None,
-            generator: RNG::from(&Language::Elven),
-        }
+            generator: RNG::from(&Language::Roman),
+        };
+        let user = s.get_profile().await?;
+        s.user.replace(user);
+        Ok(s)
     }
+    
     pub async fn signup(&self, request: SignupRequest) -> Result<()> {
         let url = format!("{}/signup", BASE_URL);
         let response = self.client.post(url).json(&request).send().await?;
@@ -114,7 +121,7 @@ impl Client {
             _ => bail!(response.text().await?),
         };
         self.token = Some(token.clone());
-        self.create_ws_connection().await;
+        self.create_ws_connection().await?;
         Ok(token)
     }
 
@@ -178,7 +185,7 @@ impl Client {
         }
     }
 
-    pub async fn create_ws_connection(&mut self) {
+    pub async fn create_ws_connection(&mut self) -> Result<()>{
         let hand_callback = |payload, _| update_state(payload, &HAND_STATE).boxed();
         let room_callback = |payload, _| update_state(payload, &GAME_STATE).boxed();
         let error_callback = |payload, _| default_callback(payload).boxed();
@@ -195,9 +202,9 @@ impl Client {
                 .on("service_error", error_callback)
                 .on("error", default_callback)
                 .connect()
-                .await
-                .expect("Connection failed"),
+                .await?
         );
+        Ok(())
     }
 
     pub async fn join_game(&mut self, payload: JoinGameRequest) -> Result<()> {
@@ -213,11 +220,10 @@ impl Client {
     }
 
     async fn emit<T: Serialize>(&mut self, event: ClientEvent, payload: T) -> Result<()> {
-        let ws_socket = self.ws_client.as_ref().expect("No socket connection");
+        let ws_socket = self.ws_client.as_ref().wrap_err("No socket connection")?;
         ws_socket
             .emit(event.as_ref(), json!(payload))
-            .await
-            .expect("Server unreachable");
+            .await?;
 
         Ok(())
     }

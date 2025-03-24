@@ -1,19 +1,24 @@
+use std::default::Default;
 use std::time::Duration;
 
+use crate::screen_data::{
+    game_screen_data, in_game_data, InGameData, InGameWidget, LobbyWidget, LoginScreenWidget,
+    OnKeyEvent, OnTick, Screen, ScreenChange,
+};
+use crate::TOKEN_MANAGER;
 use chrono::{DateTime, Utc};
+use cli_log::debug;
 use client::client::Client;
+use color_eyre::eyre::ContextCompat;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyEvent};
+use poker::{Card, Rank, Suit};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 use ratatui::{DefaultTerminal, Frame};
-
-use crate::screen_data::{
-    game_screen_data, InGameScreenWidget, LoginScreenWidget, OnKeyEvent, Screen, ScreenChange,
-};
-use crate::TOKEN_MANAGER;
+use types::state::{PlayerHand, SerdeCard, SharedGameState};
 
 pub struct App {
     /// Is the application running?
@@ -41,17 +46,31 @@ fn get_token() -> Result<String> {
 impl App {
     /// Construct a new instance of [`App`].
     pub async fn new() -> Result<Self> {
-        let token = get_token().ok();
+        // let token = get_token().ok();
+        let token = Some("2b56ee42-0570-4410-8bb5-bd89ccaeb469".to_string());
         let app = match token {
             Some(token) => {
-                let mut client = Client::new_with_token(token);
-                client.create_ws_connection().await;
-                let game_data = game_screen_data(&mut client).await?;
+                let mut client = Client::new_with_token(token).await?;
+                client.create_ws_connection().await?;
+                // let game_data = game_screen_data(&mut client).await?;
+                let user_id = client
+                    .user
+                    .as_ref()
+                    .map(|u| u.id)
+                    .wrap_err("Failed to get user")?;
+                let in_game_data = in_game_data(
+                    user_id,
+                    PlayerHand([
+                        Some(SerdeCard(Card::new(Rank::Eight, Suit::Diamonds))),
+                        Some(SerdeCard(Card::new(Rank::Nine, Suit::Hearts))),
+                    ]),
+                    SharedGameState::filled_state_for_test(),
+                );
                 Self {
                     running: true,
                     client,
                     error_message: None,
-                    screen: Screen::InGame(game_data),
+                    screen: Screen::InGame(in_game_data),
                 }
             }
             None => Self {
@@ -85,8 +104,11 @@ impl App {
                 frame.render_stateful_widget(LoginScreenWidget, frame.area(), data);
                 frame.set_cursor_position(data.cursor_position);
             }
+            Screen::Lobby(ref mut data) => {
+                frame.render_stateful_widget(LobbyWidget, frame.area(), data);
+            }
             Screen::InGame(ref mut data) => {
-                frame.render_stateful_widget(InGameScreenWidget, frame.area(), data);
+                frame.render_stateful_widget(InGameWidget, frame.area(), data);
             }
         }
 
@@ -125,6 +147,12 @@ impl App {
                     self.error_message.replace(e.to_string().into());
                 }
             }
+        } else {
+            match self.screen {
+                Screen::Login(ref mut data) => data.on_tick(&mut self.client).await?,
+                Screen::Lobby(ref mut data) => data.on_tick(&mut self.client).await?,
+                Screen::InGame(ref mut data) => data.on_tick(&mut self.client).await?,
+            }
         }
         Ok(())
     }
@@ -133,6 +161,7 @@ impl App {
     async fn on_key_event(&mut self, key: KeyEvent) -> Result<()> {
         let change = match self.screen {
             Screen::Login(ref mut data) => data.on_key_event(key, &mut self.client).await?,
+            Screen::Lobby(ref mut data) => data.on_key_event(key, &mut self.client).await?,
             Screen::InGame(ref mut data) => data.on_key_event(key, &mut self.client).await?,
         };
 

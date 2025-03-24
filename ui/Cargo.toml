@@ -18,3 +18,18 @@ cli-log = "2.1.0"
 async-trait = "0.1.86"
 lazy_static = "1.5.0"
 keyring = { version = "3.6.2", features = ["apple-native", "windows-native", "sync-secret-service"]}
+dashmap = "6.1.0"
+ansi-to-tui = "7.0.0"
+uuid = { version = "1.13.1", features = ["v4"] }
+artem = "3.0.0"
+poker = "0.6.4"
+image = "0.25.5"
+common = { path = "../common" }
+
+[build-dependencies]
+artem = "3.0.0"
+poker = "0.6.4"
+image = "0.25.5"
+
+
+

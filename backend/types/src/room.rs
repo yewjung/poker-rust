@@ -37,6 +37,7 @@ pub struct Player {
     pub has_taken_turn: bool,
     pub sid: Sid,
     pub is_connected: bool,
+    pub last_action: Option<Action>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,6 +59,7 @@ impl Player {
             has_taken_turn: false,
             sid: Sid::default(),
             is_connected: true,
+            last_action: None,
         }
     }
 
@@ -84,13 +86,15 @@ impl Player {
             has_taken_turn: false,
             sid,
             is_connected: true,
+            last_action: None,
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Type, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Type, Serialize, Deserialize, Default)]
 #[sqlx(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Stage {
+    #[default]
     NotEnoughPlayers,
     PreFlop,
     Flop,
@@ -110,6 +114,13 @@ pub enum Position {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hand(pub [Card; 2]);
+
+impl Default for Room {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+pub const MAX_NUM_OF_PLAYERS: usize = 5;
 
 impl Room {
     pub fn new() -> Self {
@@ -182,7 +193,14 @@ impl Room {
         }
     }
 
-    pub fn leave_player(&mut self, player_id: Uuid) {
+    pub fn leave_player(&mut self, player_id: Uuid) -> u32 {
+        let chips = self
+            .players
+            .iter()
+            .chain(self.player_joining_next_round.iter())
+            .find(|p| p.id == player_id)
+            .map(|p| p.chips)
+            .unwrap_or_default();
         self.players
             .iter_mut()
             .chain(self.player_joining_next_round.iter_mut())
@@ -195,10 +213,11 @@ impl Room {
             self.reset_table();
             self.stage = Stage::NotEnoughPlayers;
         }
+        chips
     }
 
     fn is_joinable(&self) -> bool {
-        self.player_count() < 10
+        self.player_count() < MAX_NUM_OF_PLAYERS
     }
 
     pub fn player_count(&self) -> usize {
@@ -438,6 +457,7 @@ impl Room {
             .iter_mut()
             .find(|p| p.id == player_id)
             .wrap_err("Player not found")?;
+        player.last_action = Some(action);
         match action {
             Action::Fold => player.has_folded = true,
             Action::Check => {
@@ -569,6 +589,7 @@ impl Room {
                 self.players.iter_mut().for_each(|p| {
                     p.has_taken_turn = false;
                     p.bet = 0;
+                    p.last_action = None;
                 });
             }
         }

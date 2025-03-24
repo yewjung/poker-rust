@@ -38,7 +38,8 @@ pub struct UpdateProfileRequest {
     pub username: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Serialize, Deserialize, AsRefStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum Action {
     Fold,
     Check,

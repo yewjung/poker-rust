@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use dashmap::mapref::one::RefMut;
 use eyre::{bail, ensure, ContextCompat, Result};
-use log::{error, info};
+use log::{debug, error, info};
 use poker::{Eval, Evaluator};
 use serde::Serialize;
 use socketioxide::socket::Sid;
@@ -256,9 +256,10 @@ impl GameService {
             .room_repository
             .get_mut_lock(room_id)
             .wrap_err(Error::InvalidRoomId)?;
-        room.leave_player(user_id);
+        let player_chips = room.leave_player(user_id);
+        debug!("chips to reimburse: {}", player_chips);
         self.user_repository
-            .update_player_room(user_id, None)
+            .remove_player_and_reimburse_chips(user_id, player_chips as i64)
             .await?;
         Ok(room.player_count())
     }
@@ -1060,6 +1061,7 @@ mod tests {
                     has_taken_turn: true,
                     sid: Sid::from_str("AA9AAA0AAzAAAAHs")?,
                     is_connected: true,
+                    last_action: None,
                 },
                 Player {
                     id: Uuid::from_u128(2),
@@ -1072,6 +1074,8 @@ mod tests {
                     has_taken_turn: true,
                     sid: Sid::from_str("AA9AAA0AAzAAAAHB")?,
                     is_connected: true,
+                    last_action: None,
+
                 },
             ],
             deck: Deck::new(),
@@ -1108,6 +1112,7 @@ mod tests {
                     has_taken_turn: true,
                     sid: Sid::from_str("AA9AAA0AAzAAAAHs")?,
                     is_connected: true,
+                    last_action: None,
                 },
                 &Player {
                     id: Uuid::from_u128(2),
@@ -1120,6 +1125,7 @@ mod tests {
                     has_taken_turn: true,
                     sid: Sid::from_str("AA9AAA0AAzAAAAHB")?,
                     is_connected: true,
+                    last_action: None,
                 },
             ]
         );
@@ -1261,6 +1267,7 @@ mod tests {
                     has_taken_turn: alice_has_taken_turn,
                     sid: Sid::default(),
                     is_connected: true,
+                    last_action: None,
                 },
                 Player {
                     id: Uuid::from_u128(2),
@@ -1273,6 +1280,7 @@ mod tests {
                     has_taken_turn: bob_has_taken_turn,
                     sid: Sid::default(),
                     is_connected: true,
+                    last_action: None,
                 },
             ],
             deck: Deck::new(),

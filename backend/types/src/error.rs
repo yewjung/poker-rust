@@ -23,6 +23,8 @@ pub enum Error {
     UserNotFound,
     #[error("Either email format is invalid or password length is less than 8")]
     InvalidEmailOrPassword,
+    #[error("No room found")]
+    NoRoomFound,
 }
 
 impl Error {
@@ -38,6 +40,7 @@ impl Error {
             Error::NotInRoom => StatusCode::BAD_REQUEST,
             Error::UserNotFound => StatusCode::NOT_FOUND,
             Error::InvalidEmailOrPassword => StatusCode::BAD_REQUEST,
+            Error::NoRoomFound => StatusCode::NOT_FOUND,
         }
     }
 
