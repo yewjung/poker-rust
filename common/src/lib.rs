@@ -2,10 +2,9 @@ use proc_macro::TokenStream;
 use quote::quote;
 use std::{env, fs};
 use std::path::PathBuf;
-use cli_log::*;
 
 #[proc_macro]
-pub fn txt_to_hashmap(_input: TokenStream) -> TokenStream {
+pub fn generate_image_lookup(_input: TokenStream) -> TokenStream {
     let path = env::var("CARGO_MANIFEST_DIR")
         .map(PathBuf::from)
         .map(|path| path.join("text_assets"))
@@ -21,22 +20,20 @@ pub fn txt_to_hashmap(_input: TokenStream) -> TokenStream {
                     .expect("Failed to read file");
 
                 entries.push(quote! {
-                    (#file_name.to_string(), #content.to_string())
+                    #file_name => Some(#content),
                 });
             }
         }
     }
 
-    let output = quote! {
-        lazy_static::lazy_static! {
-            pub static ref IMAGE_CACHE: std::collections::HashMap<String, String> = {
-                let mut map = std::collections::HashMap::from([
-                    #(#entries),*
-                ]);
-                map
-            };
+    let expanded = quote! {
+        pub fn lookup_image(key: &str) -> Option<&'static str> {
+            match key {
+                #(#entries)*
+                _ => None,
+            }
         }
     };
 
-    output.into()
+    TokenStream::from(expanded)
 }

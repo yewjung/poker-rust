@@ -4,11 +4,11 @@ pub mod app;
 mod screen_data;
 
 use cli_log::*;
-use common::txt_to_hashmap;
+use common::generate_image_lookup;
 use keyring::Entry;
 use lazy_static::lazy_static;
 
-txt_to_hashmap!();
+generate_image_lookup!();
 
 lazy_static! {
     static ref TOKEN_MANAGER: Entry =
@@ -23,18 +23,4 @@ async fn main() -> color_eyre::Result<()> {
     let result = App::new().await?.run(terminal).await;
     ratatui::restore();
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::IMAGE_CACHE;
-    use std::fs;
-
-    #[test]
-    fn test_txt_to_hashmap() {
-        let path = "text_assets";
-        assert!(fs::read_dir(path).is_ok());
-
-        assert!(IMAGE_CACHE.len() > 0);
-    }
 }

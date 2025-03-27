@@ -25,7 +25,7 @@ use types::room::MAX_NUM_OF_PLAYERS;
 use types::state::{HandState, PlayerHand, PlayerState, SerdeCard, SharedGameState};
 use uuid::Uuid;
 
-use crate::{IMAGE_CACHE, TOKEN_MANAGER};
+use crate::{lookup_image, TOKEN_MANAGER};
 
 #[derive(Debug, Default)]
 pub struct LoginScreenData {
@@ -448,14 +448,14 @@ impl StatefulWidget for InGameWidget {
     type State = InGameData;
 
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
-        let [top, bottom, _] =
+        let [community, hands, actions] =
             Layout::vertical(Constraint::from_percentages([70, 15, 15])).areas(area);
         let community_card_areas: [_; 5] =
-            Layout::horizontal(Constraint::from_ratios([(1, 5); 5])).areas(top);
+            Layout::horizontal(Constraint::from_ratios([(1, 5); 5])).areas(community);
         let hand_areas: [_; MAX_NUM_OF_PLAYERS] = Layout::horizontal(Constraint::from_ratios(
             [(1, MAX_NUM_OF_PLAYERS as u32); MAX_NUM_OF_PLAYERS],
         ))
-        .areas(bottom);
+        .areas(hands);
         // community cards
         for (card_area, card) in zip(community_card_areas, &state.game.community_cards) {
             card_paragraph(card_area, card, buf);
@@ -502,10 +502,11 @@ fn hand_paragraph(area: Rect, state: &PlayerState, in_turn: bool, buf: &mut Buff
 }
 
 fn card_paragraph(area: Rect, card: &SerdeCard, buf: &mut Buffer) {
-    let image_text = IMAGE_CACHE.get(&card.rank_suit_string());
+    let image_key = card.rank_suit_string();
+    let image_text = lookup_image(&image_key);
     let paragraph = image_text
         .and_then(|c| c.into_text().ok())
-        .map_or(Paragraph::new(card.rank_suit_string()), Paragraph::new);
+        .map_or(Paragraph::new(image_key), Paragraph::new);
     paragraph
         .block(
             Block::bordered()

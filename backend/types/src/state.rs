@@ -3,7 +3,7 @@ use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
 use poker::{Card, Eval, Rank, Suit};
-use ratatui::prelude::{Color, Span, Style, Text};
+use ratatui::prelude::{Color, Span, Style};
 use ratatui::style::Stylize;
 use ratatui::text::Line;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
