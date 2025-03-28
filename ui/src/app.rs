@@ -2,8 +2,8 @@ use std::default::Default;
 use std::time::Duration;
 
 use crate::screen_data::{
-    game_screen_data, in_game_data, InGameWidget, LobbyWidget, LoginScreenWidget,
-    OnKeyEvent, OnTick, Screen, ScreenChange,
+    game_screen_data, in_game_data, InGameWidget, LobbyWidget, LoginScreenWidget, OnKeyEvent,
+    OnTick, Screen, ScreenChange,
 };
 use crate::TOKEN_MANAGER;
 use chrono::{DateTime, Utc};

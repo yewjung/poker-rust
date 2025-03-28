@@ -8,7 +8,7 @@ use color_eyre::eyre::ContextCompat;
 use color_eyre::Result;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
-use ratatui::layout::{Alignment, Constraint, Flex, Layout, Position, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Flex, Layout, Position, Rect};
 use ratatui::prelude::{Color, Masked, Modifier, Span, Style};
 use ratatui::text::Line;
 use ratatui::widgets::{
@@ -184,8 +184,7 @@ impl StatefulWidget for LoginScreenWidget {
         Paragraph::new(password_text)
             .block(Block::bordered().title("Password"))
             .render(password, buf);
-        let [_, login, signup, _] =
-            Layout::horizontal(Constraint::from_percentages([25, 25, 25, 25])).areas(actions);
+        let [_, login, signup, _] = Layout::split_equal(actions, Direction::Horizontal);
 
         Paragraph::new(highlight("Login", state.focus == LoginScreenFocus::Login))
             .centered()
@@ -241,6 +240,16 @@ pub struct InGameData {
     user_id: Uuid,
     hand: PlayerHand,
     game: SharedGameState,
+    raise_input: Input,
+}
+
+impl InGameData {
+    pub fn is_in_turn(&self) -> bool {
+        self.game
+            .current_player
+            .as_ref()
+            .is_some_and(|id| *id == self.user_id)
+    }
 }
 
 pub fn in_game_data(user_id: Uuid, hand: PlayerHand, game: SharedGameState) -> InGameData {
@@ -248,6 +257,7 @@ pub fn in_game_data(user_id: Uuid, hand: PlayerHand, game: SharedGameState) -> I
         user_id,
         hand,
         game,
+        raise_input: Input::default(),
     }
 }
 
@@ -319,8 +329,7 @@ impl StatefulWidget for LobbyWidget {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let [user, rooms] =
             Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(area);
-        let [user_left, user_right] =
-            Layout::horizontal([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)]).areas(user);
+        let [user_left, user_right] = Layout::split_equal(user, Direction::Vertical);
         Paragraph::new(state.user.name.as_str())
             .block(Block::bordered().title("Username"))
             .render(user_left, buf);
@@ -405,6 +414,7 @@ impl OnKeyEvent for LobbyScreenData {
                                 .as_ref()
                                 .map_or(PlayerHand::default(), |h| h.data.clone()),
                             game: game_state.data.clone(),
+                            raise_input: Input::default(),
                         })));
                     } else {
                         sleep(Duration::from_secs(1)).await;
@@ -450,12 +460,14 @@ impl StatefulWidget for InGameWidget {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let [community, hands, actions] =
             Layout::vertical(Constraint::from_percentages([70, 15, 15])).areas(area);
-        let community_card_areas: [_; 5] =
-            Layout::horizontal(Constraint::from_ratios([(1, 5); 5])).areas(community);
-        let hand_areas: [_; MAX_NUM_OF_PLAYERS] = Layout::horizontal(Constraint::from_ratios(
-            [(1, MAX_NUM_OF_PLAYERS as u32); MAX_NUM_OF_PLAYERS],
-        ))
-        .areas(hands);
+        let community_card_areas: [_; 5] = Layout::split_equal(community, Direction::Horizontal);
+        let hand_areas: [_; MAX_NUM_OF_PLAYERS] = Layout::split_equal(hands, Direction::Horizontal);
+        let [_, actions, _] = Layout::horizontal([
+            Constraint::Fill(1),
+            Constraint::Percentage(50),
+            Constraint::Fill(1),
+        ])
+        .areas(actions);
         // community cards
         for (card_area, card) in zip(community_card_areas, &state.game.community_cards) {
             card_paragraph(card_area, card, buf);
@@ -473,7 +485,39 @@ impl StatefulWidget for InGameWidget {
                 .is_some_and(|curr| curr == player_state.id);
             hand_paragraph(hand_area, player_state, is_in_turn, buf);
         }
+
+        action_paragraph(actions, state, buf);
     }
+}
+
+fn action_paragraph(area: Rect, state: &mut InGameData, buf: &mut Buffer) {
+    let mut outer_block = Block::bordered()
+        .title(Line::from("Actions").centered())
+        .border_type(BorderType::Rounded);
+
+    if state.is_in_turn() {
+        outer_block = outer_block.title_bottom(Line::from("It's Your Turn").centered())
+    }
+
+    let inner_area = outer_block.inner(area);
+    outer_block.render(area, buf);
+    let [_, button_area, _] = Layout::vertical([Constraint::Fill(1), Constraint::Length(3), Constraint::Fill(1)]).areas(inner_area);
+    // top = check, call, raise,
+    let buttons: [_; 5] = Layout::split_equal(button_area, Direction::Horizontal);
+    buttons
+        .into_iter()
+        .zip(["Check", "Call", "Raise", "Fold", "All-In"])
+        .for_each(|(button, action)| {
+            if action == "Raise" {
+                Paragraph::new(Line::from(action).centered())
+                    .block(Block::bordered().title("Raise"))
+                    .render(button, buf);
+            } else {
+                Paragraph::new(Line::from(action).centered())
+                    .block(Block::bordered())
+                    .render(button, buf);
+            }
+        });
 }
 
 fn hand_paragraph(area: Rect, state: &PlayerState, in_turn: bool, buf: &mut Buffer) {
@@ -516,4 +560,20 @@ fn card_paragraph(area: Rect, card: &SerdeCard, buf: &mut Buffer) {
                 .border_type(BorderType::Rounded),
         )
         .render(area, buf);
+}
+
+trait Splittable {
+    fn split_equal<const N: usize>(area: Rect, direction: Direction) -> [Rect; N];
+}
+
+impl Splittable for Layout {
+    fn split_equal<const N: usize>(area: Rect, direction: Direction) -> [Rect; N] {
+        let n = N as u32;
+        match direction {
+            Direction::Horizontal => {
+                Self::horizontal(Constraint::from_ratios([(1, n); N])).areas(area)
+            }
+            Direction::Vertical => Self::vertical(Constraint::from_ratios([(1, n); N])).areas(area),
+        }
+    }
 }

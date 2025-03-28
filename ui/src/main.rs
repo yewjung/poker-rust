@@ -2,6 +2,7 @@ pub use app::App;
 
 pub mod app;
 mod screen_data;
+mod in_game;
 
 use cli_log::*;
 use common::generate_image_lookup;
