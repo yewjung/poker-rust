@@ -10,7 +10,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Line, Modifier, StatefulWidget, Style, Widget};
 use ratatui::style::Color;
-use ratatui::widgets::{Block, BorderType, Paragraph};
+use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 use types::domain::{Action, ActionRequest};
@@ -38,7 +38,16 @@ impl StatefulWidget for InGameWidget {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let [community, hands, actions] =
             Layout::vertical(Constraint::from_percentages([70, 15, 15])).areas(area);
-        let community_card_areas: [_; 5] = Layout::split_equal(community, Direction::Horizontal);
+        let outer_community_block =Block::new()
+            .borders(Borders::BOTTOM)
+            .border_type(BorderType::Rounded)
+            .title_bottom(state.game.stage.line().centered());
+        let inner_community_block = outer_community_block.inner(community);
+
+        // render outer block for community cards
+        outer_community_block.render(community, buf);
+
+        let community_card_areas: [_; 5] = Layout::split_equal(inner_community_block, Direction::Horizontal);
         let hand_areas: [_; MAX_NUM_OF_PLAYERS] = Layout::split_equal(hands, Direction::Horizontal);
         let [_, actions, _] = Layout::horizontal([
             Constraint::Fill(1),
@@ -53,6 +62,7 @@ impl StatefulWidget for InGameWidget {
 
         for (hand_area, player_state) in zip(hand_areas, &mut state.game.players) {
             if player_state.id == state.user_id
+                && !state.hand.is_empty()
                 && !matches!(player_state.hand, HandState::Revealed(_))
             {
                 player_state.reveal(state.hand.clone());

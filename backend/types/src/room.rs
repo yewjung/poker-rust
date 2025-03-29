@@ -2,6 +2,7 @@ use std::collections::HashSet;
 
 use eyre::{bail, ensure, ContextCompat, Report, Result};
 use poker::{box_cards, Card};
+use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
 use socketioxide::socket::Sid;
 use sqlx::Type;
@@ -101,6 +102,19 @@ pub enum Stage {
     Turn,
     River,
     Showdown,
+}
+
+impl Stage {
+    pub fn line(&self) -> Line {
+        match self {
+            Stage::NotEnoughPlayers => "Waiting for players",
+            Stage::PreFlop => "Pre-flop",
+            Stage::Flop => "Flop",
+            Stage::Turn => "Turn",
+            Stage::River => "River",
+            Stage::Showdown => "Showdown",
+        }.into()
+    }
 }
 
 #[derive(Debug, Eq, Hash, PartialEq, Clone, Ord, PartialOrd, Serialize, Deserialize)]

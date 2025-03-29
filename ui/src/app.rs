@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::data::{OnKeyEvent, OnTick, Screen, ScreenChange};
 use crate::game::{in_game_data, InGameWidget};
-use crate::lobby::LobbyWidget;
+use crate::lobby::{lobby_screen_data, LobbyWidget};
 use crate::login::LoginScreenWidget;
 use crate::TOKEN_MANAGER;
 use chrono::{DateTime, Utc};
@@ -45,31 +45,32 @@ fn get_token() -> Result<String> {
 impl App {
     /// Construct a new instance of [`App`].
     pub async fn new() -> Result<Self> {
-        // let token = get_token().ok();
-        let token = Some("2b56ee42-0570-4410-8bb5-bd89ccaeb469".to_string());
+        let token = get_token().ok();
+        // let token = Some("2b56ee42-0570-4410-8bb5-bd89ccaeb469".to_string());
         let app = match token {
             Some(token) => {
                 let mut client = Client::new_with_token(token).await?;
                 client.create_ws_connection().await?;
-                // let game_data = game_screen_data(&mut client).await?;
-                let user_id = client
-                    .user
-                    .as_ref()
-                    .map(|u| u.id)
-                    .wrap_err("Failed to get user")?;
-                let in_game_data = in_game_data(
-                    user_id,
-                    PlayerHand([
-                        Some(SerdeCard(Card::new(Rank::Eight, Suit::Diamonds))),
-                        Some(SerdeCard(Card::new(Rank::Nine, Suit::Hearts))),
-                    ]),
-                    SharedGameState::filled_state_for_test(),
-                );
+                let lobby = lobby_screen_data(&mut client).await?;
+                // let user_id = client
+                //     .user
+                //     .as_ref()
+                //     .map(|u| u.id)
+                //     .wrap_err("Failed to get user")?;
+                // let in_game_data = in_game_data(
+                //     user_id,
+                //     PlayerHand([
+                //         Some(SerdeCard(Card::new(Rank::Eight, Suit::Diamonds))),
+                //         Some(SerdeCard(Card::new(Rank::Nine, Suit::Hearts))),
+                //     ]),
+                //     SharedGameState::filled_state_for_test(),
+                // );
                 Self {
                     running: true,
                     client,
                     error_message: None,
-                    screen: Screen::InGame(in_game_data),
+                    screen: Screen::Lobby(lobby),
+                    // screen: Screen::InGame(in_game_data),
                 }
             }
             None => Self {

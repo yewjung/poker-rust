@@ -18,7 +18,7 @@ use types::state::PlayerHand;
 
 use crate::data::{OnKeyEvent, OnTick, Screen, ScreenChange};
 use crate::extension::Splittable;
-use crate::game::InGameData;
+use crate::game::{in_game_data, InGameData};
 use crate::login::LoginScreenData;
 
 #[derive(Debug)]
@@ -56,7 +56,7 @@ impl StatefulWidget for LobbyWidget {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let [user, rooms] =
             Layout::vertical([Constraint::Length(3), Constraint::Min(0)]).areas(area);
-        let [user_left, user_right] = Layout::split_equal(user, Direction::Vertical);
+        let [user_left, user_right] = Layout::split_equal(user, Direction::Horizontal);
         Paragraph::new(state.user.name.as_str())
             .block(Block::bordered().title("Username"))
             .render(user_left, buf);
@@ -139,14 +139,13 @@ impl OnKeyEvent for LobbyScreenData {
                 loop {
                     if let Ok(Some(game_state)) = GAME_STATE.try_read().as_deref() {
                         let hand = HAND_STATE.read().await;
-                        return Ok(ScreenChange::Switch(Screen::InGame(InGameData {
-                            user_id: client.user.as_ref().map(|u| u.id).wrap_err("No user")?,
-                            hand: hand
-                                .as_ref()
+                        let game = in_game_data(
+                            client.user.as_ref().map(|u| u.id).wrap_err("No user")?,
+                            hand.as_ref()
                                 .map_or(PlayerHand::default(), |h| h.data.clone()),
-                            game: game_state.data.clone(),
-                            ..Default::default()
-                        })));
+                            game_state.data.clone(),
+                        );
+                        return Ok(ScreenChange::Switch(Screen::InGame(game)));
                     } else {
                         sleep(Duration::from_secs(1)).await;
                     }

@@ -70,7 +70,7 @@ impl SharedGameState {
                     bet: 20,
                     has_folded: true,
                     position: Position::BigBlind,
-                    hand: HandState::Hidden,
+                    hand: HandState::Empty,
                     eval: None,
                     is_connected: false,
                     last_action: None,
@@ -190,6 +190,10 @@ impl PlayerHand {
             Some(card) => card.span(),
             None => "[ ?? ]".black().on_white(),
         }
+    }
+    pub fn is_empty(&self) -> bool {
+        let Self([a, b]) = self;
+        matches!((a, b), (None, None))
     }
 }
 
