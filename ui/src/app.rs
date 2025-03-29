@@ -102,10 +102,15 @@ impl App {
         match self.screen {
             Screen::Login(ref mut data) => {
                 frame.render_stateful_widget(LoginScreenWidget, frame.area(), data);
-                frame.set_cursor_position(data.cursor_position);
+                if let Some(pos) = data.cursor_position {
+                    frame.set_cursor_position(pos);
+                }
             }
             Screen::Lobby(ref mut data) => {
                 frame.render_stateful_widget(LobbyWidget, frame.area(), data);
+                if let Some(pos) = data.cursor_position {
+                    frame.set_cursor_position(pos);
+                }
             }
             Screen::InGame(ref mut data) => {
                 frame.render_stateful_widget(InGameWidget, frame.area(), data);
@@ -148,10 +153,14 @@ impl App {
                 }
             }
         } else {
-            match self.screen {
-                Screen::Login(ref mut data) => data.on_tick(&mut self.client).await?,
-                Screen::Lobby(ref mut data) => data.on_tick(&mut self.client).await?,
-                Screen::InGame(ref mut data) => data.on_tick(&mut self.client).await?,
+            let result = match self.screen {
+                Screen::Login(ref mut data) => data.on_tick(&mut self.client).await,
+                Screen::Lobby(ref mut data) => data.on_tick(&mut self.client).await,
+                Screen::InGame(ref mut data) => data.on_tick(&mut self.client).await,
+            };
+            if let Err(e) = result {
+                // server connection error
+                self.error_message.replace("Connection to server lost".to_string().into());
             }
         }
         Ok(())

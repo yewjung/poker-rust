@@ -9,12 +9,13 @@ use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Line, Modifier, StatefulWidget, Style, Widget};
-use ratatui::style::Color;
+use ratatui::style::{Color, Stylize};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use tui_big_text::{BigText, PixelSize};
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 use types::domain::{Action, ActionRequest};
-use types::room::MAX_NUM_OF_PLAYERS;
+use types::room::{Stage, MAX_NUM_OF_PLAYERS};
 use types::state::{HandState, PlayerHand, PlayerState, SerdeCard, SharedGameState};
 use uuid::Uuid;
 
@@ -38,16 +39,16 @@ impl StatefulWidget for InGameWidget {
     fn render(self, area: Rect, buf: &mut Buffer, state: &mut Self::State) {
         let [community, hands, actions] =
             Layout::vertical(Constraint::from_percentages([70, 15, 15])).areas(area);
-        let outer_community_block =Block::new()
+        let outer_community_block = Block::new()
             .borders(Borders::BOTTOM)
             .border_type(BorderType::Rounded)
-            .title_bottom(state.game.stage.line().centered());
+            .title_bottom(state.game.stage.line().centered())
+            .title_bottom(state.game.pots_line().left_aligned());
         let inner_community_block = outer_community_block.inner(community);
 
         // render outer block for community cards
         outer_community_block.render(community, buf);
 
-        let community_card_areas: [_; 5] = Layout::split_equal(inner_community_block, Direction::Horizontal);
         let hand_areas: [_; MAX_NUM_OF_PLAYERS] = Layout::split_equal(hands, Direction::Horizontal);
         let [_, actions, _] = Layout::horizontal([
             Constraint::Fill(1),
@@ -56,8 +57,23 @@ impl StatefulWidget for InGameWidget {
         ])
         .areas(actions);
         // community cards
-        for (card_area, card) in zip(community_card_areas, &state.game.community_cards) {
-            card_paragraph(card_area, card, buf);
+        if state.game.community_cards.is_empty() {
+            let [_, text_area, _] =
+                Layout::vertical([Constraint::Fill(1), Constraint::Min(0), Constraint::Fill(1)])
+                    .areas(inner_community_block);
+            let big_text = BigText::builder()
+                .pixel_size(PixelSize::Full)
+                // .style(Style::new().blue())
+                .lines(vec!["No Cards".white().into()])
+                .centered()
+                .build();
+            big_text.render(text_area, buf);
+        } else {
+            let community_card_areas: [_; 5] =
+                Layout::split_equal(inner_community_block, Direction::Horizontal);
+            for (card_area, card) in zip(community_card_areas, &state.game.community_cards) {
+                card_paragraph(card_area, card, buf);
+            }
         }
 
         for (hand_area, player_state) in zip(hand_areas, &mut state.game.players) {
@@ -160,7 +176,7 @@ pub struct InGameData {
     pub hand: PlayerHand,
     pub game: SharedGameState,
     pub raise_input: Input,
-    pub focus: InGameFocus,
+    pub focus: Option<InGameFocus>,
 }
 
 impl InGameData {
@@ -234,20 +250,27 @@ impl InGameFocus {
             InGameFocus::Raise => Line::from(state.raise_input.value().to_string()).centered(),
             InGameFocus::Call => highlight(
                 format!("{} ({})", self, state.game.max_bet() - state.bet()),
-                state.focus == *self,
+                state.focus.as_ref().is_some_and(|f| f == self),
             )
             .into_centered_line(),
             InGameFocus::AllIn => highlight(
                 format!("{} ({})", self, state.chips()),
-                state.focus == *self,
+                state.focus.as_ref().is_some_and(|f| f == self),
             )
             .into_centered_line(),
-            _ => highlight(self.to_string(), state.focus == *self).into_centered_line(),
+            _ => highlight(
+                self.to_string(),
+                state.focus.as_ref().is_some_and(|f| f == self),
+            )
+            .into_centered_line(),
         };
         match self {
             InGameFocus::Raise => Paragraph::new(line).block(
                 Block::bordered()
-                    .title(highlight(self.to_string(), state.focus == *self))
+                    .title(highlight(
+                        self.to_string(),
+                        state.focus.as_ref().is_some_and(|f| f == self),
+                    ))
                     .style(color),
             ),
             _ => Paragraph::new(line).block(Block::bordered().style(color)),
@@ -264,16 +287,25 @@ impl InGameFocus {
         }
     }
 
-    fn switch(&self, state: &InGameData) -> Self {
+    fn switch(&self, state: &InGameData) -> Option<Self> {
         (1..ACTION_BUTTONS.len())
             .map(|i| (i + self.position_in_array()) % ACTION_BUTTONS.len())
             .map(|i| &ACTION_BUTTONS[i])
             .find(|action| action.enabled(state))
-            .unwrap_or(&InGameFocus::Check)
-            .clone()
+            .cloned()
+    }
+
+    fn first_enabled(state: &InGameData) -> Option<Self> {
+        ACTION_BUTTONS
+            .iter()
+            .find(|action| action.enabled(state))
+            .cloned()
     }
 
     fn enabled(&self, state: &InGameData) -> bool {
+        if matches!(state.game.stage, Stage::NotEnoughPlayers | Stage::Showdown) {
+            return false;
+        }
         match self {
             InGameFocus::Check => state.bet() >= state.game.max_bet(),
             InGameFocus::Call => state.game.max_bet() - state.bet() <= state.chips(),
@@ -298,12 +330,14 @@ impl InGameFocus {
 }
 
 pub fn in_game_data(user_id: Uuid, hand: PlayerHand, game: SharedGameState) -> InGameData {
-    InGameData {
+    let mut game = InGameData {
         user_id,
         hand,
         game,
         ..Default::default()
-    }
+    };
+    game.focus = InGameFocus::first_enabled(&game);
+    game
 }
 
 #[async_trait::async_trait]
@@ -327,10 +361,18 @@ impl OnKeyEvent for InGameData {
             }
             (KeyEventKind::Press, KeyModifiers::CONTROL, KeyCode::Char('c')) => ScreenChange::Quit,
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Tab) => {
-                self.focus = self.focus.switch(&self);
+                self.focus = self
+                    .focus
+                    .as_ref()
+                    .map_or_else(|| InGameFocus::first_enabled(self), |f| f.switch(self));
                 ScreenChange::None
             }
-            (KeyEventKind::Press, KeyModifiers::NONE, _) if self.focus == InGameFocus::Raise => {
+            (KeyEventKind::Press, KeyModifiers::NONE, _)
+                if self
+                    .focus
+                    .as_ref()
+                    .is_some_and(|f| f == &InGameFocus::Raise) =>
+            {
                 if let KeyCode::Char(c) = key.code {
                     if c.is_numeric() {
                         self.raise_input.handle_event(&Event::Key(key));
@@ -341,8 +383,10 @@ impl OnKeyEvent for InGameData {
                 ScreenChange::None
             }
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Enter) => {
-                let action = self.focus.to_action_request(self)?;
-                client.action(action).await?;
+                if let Some(focus) = &self.focus {
+                    let action = focus.to_action_request(self)?;
+                    client.action(action).await?;
+                };
                 ScreenChange::None
             }
             _ => ScreenChange::None,

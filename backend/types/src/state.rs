@@ -24,6 +24,20 @@ pub struct SharedGameState {
 
 impl SharedGameState {
 
+    pub fn pots_line(&self) -> Line {
+        let pots = self
+            .pots
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        if pots.is_empty() {
+            Line::default()
+        } else {
+            Line::from(format!("Pot: {}", pots))
+        }
+    }
+
     pub fn max_bet(&self) -> u32 {
         self
             .players
@@ -82,7 +96,7 @@ impl SharedGameState {
                 SerdeCard(Card::new(Rank::Queen, Suit::Hearts)),
                 SerdeCard(Card::new(Rank::Queen, Suit::Diamonds)),
             ],
-            pots: vec![1000],
+            pots: vec![1000, 2000],
             stage: Stage::Flop,
             current_player: Some(player_id),
         }
@@ -143,8 +157,14 @@ impl PlayerState {
         }
     }
 
-    pub fn bottom_title(&self) -> &str {
-        &self.name
+    pub fn bottom_title(&self) -> String {
+        // truncate if longer than 13 characters
+        // apply ellipsis
+        if self.name.len() > 13 {
+            format!("{}...", self.name.chars().take(10).collect::<String>())
+        } else {
+            self.name.clone()
+        }
     }
 
     pub fn chips_display(&self) -> Line {

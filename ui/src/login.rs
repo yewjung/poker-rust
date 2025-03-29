@@ -16,7 +16,7 @@ pub struct LoginScreenData {
     email_input: Input,
     password_input: Input,
     focus: LoginScreenFocus,
-    pub(crate) cursor_position: Position,
+    pub(crate) cursor_position: Option<Position>,
 }
 
 impl From<LoginScreenData> for ScreenChange {
@@ -106,20 +106,20 @@ impl LoginScreenData {
     fn update_cursor_position(&mut self, top: Rect, bottom: Rect) {
         match self.focus {
             LoginScreenFocus::Email => {
-                self.cursor_position = (
+                self.cursor_position = Some((
                     top.x + self.email_input.visual_cursor() as u16 + 1,
                     top.y + 1,
                 )
-                    .into();
+                    .into());
             }
             LoginScreenFocus::Password => {
-                self.cursor_position = (
+                self.cursor_position = Some((
                     bottom.x + self.password_input.visual_cursor() as u16 + 1,
                     bottom.y + 1,
                 )
-                    .into();
+                    .into());
             }
-            _ => {}
+            _ => self.cursor_position = None,
         }
     }
 }
