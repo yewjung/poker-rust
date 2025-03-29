@@ -33,7 +33,7 @@ impl SharedGameState {
             .max()
             .unwrap_or_default()
     }
-    
+
     pub fn filled_state_for_test() -> Self {
         let player_id = Uuid::from_str("a3853c6f-58d6-4872-a8ac-17257e330603").unwrap();
         Self {
@@ -125,6 +125,13 @@ pub struct PlayerState {
     pub eval: Option<String>,
     pub is_connected: bool,
     pub last_action: Option<Action>,
+}
+
+impl PlayerState {
+
+    pub fn is_dealer(&self) -> bool {
+        self.position.is_dealer()
+    }
 }
 
 impl PlayerState {

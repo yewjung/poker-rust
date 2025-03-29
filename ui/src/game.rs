@@ -108,6 +108,10 @@ fn hand_paragraph(area: Rect, state: &PlayerState, in_turn: bool, buf: &mut Buff
         outer_block = outer_block.border_style(Style::default().add_modifier(Modifier::SLOW_BLINK));
     }
 
+    if state.is_dealer() {
+        outer_block = outer_block.title_bottom(Line::from("Dealer").right_aligned());
+    }
+
     let inner_block_area = outer_block.inner(area);
     let [_, bet_area, chips_area] = Layout::vertical([
         Constraint::Min(0),

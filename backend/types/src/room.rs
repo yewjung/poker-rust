@@ -112,6 +112,12 @@ pub enum Position {
     Dealer,
 }
 
+impl Position {
+    pub fn is_dealer(&self) -> bool {
+        matches!(self, Self::Dealer | Self::DealerAndSmallBlind)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Hand(pub [Card; 2]);
 
