@@ -23,6 +23,17 @@ pub struct SharedGameState {
 }
 
 impl SharedGameState {
+
+    pub fn max_bet(&self) -> u32 {
+        self
+            .players
+            .iter()
+            .filter(|p| !p.has_folded)
+            .map(|p| p.bet)
+            .max()
+            .unwrap_or_default()
+    }
+    
     pub fn filled_state_for_test() -> Self {
         let player_id = Uuid::from_str("a3853c6f-58d6-4872-a8ac-17257e330603").unwrap();
         Self {

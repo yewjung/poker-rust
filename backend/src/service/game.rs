@@ -1075,7 +1075,6 @@ mod tests {
                     sid: Sid::from_str("AA9AAA0AAzAAAAHB")?,
                     is_connected: true,
                     last_action: None,
-
                 },
             ],
             deck: Deck::new(),

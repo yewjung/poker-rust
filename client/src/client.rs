@@ -101,7 +101,7 @@ impl Client {
         s.user.replace(user);
         Ok(s)
     }
-    
+
     pub async fn signup(&self, request: SignupRequest) -> Result<()> {
         let url = format!("{}/signup", BASE_URL);
         let response = self.client.post(url).json(&request).send().await?;
@@ -185,7 +185,7 @@ impl Client {
         }
     }
 
-    pub async fn create_ws_connection(&mut self) -> Result<()>{
+    pub async fn create_ws_connection(&mut self) -> Result<()> {
         let hand_callback = |payload, _| update_state(payload, &HAND_STATE).boxed();
         let room_callback = |payload, _| update_state(payload, &GAME_STATE).boxed();
         let error_callback = |payload, _| default_callback(payload).boxed();
@@ -202,7 +202,7 @@ impl Client {
                 .on("service_error", error_callback)
                 .on("error", default_callback)
                 .connect()
-                .await?
+                .await?,
         );
         Ok(())
     }
@@ -221,9 +221,7 @@ impl Client {
 
     async fn emit<T: Serialize>(&mut self, event: ClientEvent, payload: T) -> Result<()> {
         let ws_socket = self.ws_client.as_ref().wrap_err("No socket connection")?;
-        ws_socket
-            .emit(event.as_ref(), json!(payload))
-            .await?;
+        ws_socket.emit(event.as_ref(), json!(payload)).await?;
 
         Ok(())
     }

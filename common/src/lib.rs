@@ -1,7 +1,7 @@
 use proc_macro::TokenStream;
 use quote::quote;
-use std::{env, fs};
 use std::path::PathBuf;
+use std::{env, fs};
 
 #[proc_macro]
 pub fn generate_image_lookup(_input: TokenStream) -> TokenStream {
@@ -16,8 +16,7 @@ pub fn generate_image_lookup(_input: TokenStream) -> TokenStream {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "txt") {
                 let file_name = path.file_stem().unwrap().to_string_lossy().to_string();
-                let content = fs::read_to_string(&path)
-                    .expect("Failed to read file");
+                let content = fs::read_to_string(&path).expect("Failed to read file");
 
                 entries.push(quote! {
                     #file_name => Some(#content),
