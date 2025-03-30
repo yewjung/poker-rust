@@ -1,3 +1,5 @@
+use std::cmp::PartialEq;
+use std::fmt::Display;
 use ansi_to_tui::IntoText;
 use client::client::{reset_game_state, reset_hand_state, Client, GAME_STATE, HAND_STATE};
 use color_eyre::eyre;
@@ -7,8 +9,6 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Line, Modifier, StatefulWidget, Style, Widget};
 use ratatui::style::{Color, Stylize};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
-use std::cmp::PartialEq;
-use std::fmt::Display;
 use std::iter::zip;
 use tui_big_text::{BigText, PixelSize};
 use tui_input::backend::crossterm::EventHandler;
@@ -20,7 +20,7 @@ use uuid::Uuid;
 
 use crate::data::{highlight, OnKeyEvent, OnTick, ScreenChange};
 use crate::extension::Splittable;
-use crate::{lobby, lookup_image};
+use crate::{lobby, lookup_image, play_sound, CHECK_SOUND, CHIPS_SOUND, DING_SOUND};
 
 const ACTION_BUTTONS: [InGameFocus; 5] = [
     InGameFocus::Check,
@@ -62,7 +62,6 @@ impl StatefulWidget for InGameWidget {
                     .areas(inner_community_block);
             let big_text = BigText::builder()
                 .pixel_size(PixelSize::Full)
-                // .style(Style::new().blue())
                 .lines(vec!["No Cards".white().into()])
                 .centered()
                 .build();
@@ -98,8 +97,7 @@ fn room_id(area: Rect, state: &InGameData, buf: &mut Buffer) {
     let [_, area] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
     let room_id = state.game.id.to_string();
     let room_id_text = format!("Room ID: {}", room_id);
-    let room_id_paragraph = Paragraph::new(room_id_text)
-        .right_aligned();
+    let room_id_paragraph = Paragraph::new(room_id_text).right_aligned();
     room_id_paragraph.render(area, buf);
 }
 
@@ -249,6 +247,17 @@ impl Display for InGameFocus {
 }
 
 impl InGameFocus {
+
+    fn sound_bytes(&self) -> &'static [u8] {
+        match self {
+            InGameFocus::Check => CHECK_SOUND,
+            InGameFocus::Call => CHIPS_SOUND,
+            InGameFocus::Raise => CHIPS_SOUND,
+            InGameFocus::Fold => CHECK_SOUND,
+            InGameFocus::AllIn => CHIPS_SOUND,
+        }
+    }
+
     fn paragraph(&self, state: &mut InGameData) -> Paragraph {
         let color = if self.enabled(state) {
             Color::White
@@ -404,6 +413,7 @@ impl OnKeyEvent for InGameData {
             }
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Enter) => {
                 if let Some(focus) = &self.focus {
+                    play_sound(focus.sound_bytes());
                     let action = focus.to_action_request(self)?;
                     client.action(action).await?;
                 };
