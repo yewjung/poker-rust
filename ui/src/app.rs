@@ -1,4 +1,5 @@
 use std::default::Default;
+use std::fmt::format;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -164,10 +165,10 @@ impl App {
                 Screen::Lobby(ref mut data) => data.on_tick(&mut self.client).await,
                 Screen::InGame(ref mut data) => data.on_tick(&mut self.client).await,
             };
-            if let Err(_) = result {
+            if let Err(e) = result {
                 // server connection error
                 self.error_message
-                    .replace("Connection to server lost".to_string().into());
+                    .replace(format!("Error occurred: {}", e).into());
             }
         }
         Ok(())
