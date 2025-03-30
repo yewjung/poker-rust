@@ -1,4 +1,5 @@
-use eyre::{ensure, Result};
+use std::str::FromStr;
+use eyre::{ensure, ContextCompat, Result};
 use socketioxide::socket::Sid;
 use sqlx::types::Uuid;
 use validator::Validate;
@@ -53,6 +54,23 @@ impl Api {
 
     pub async fn get_user_by_session_token(&self, token: Uuid) -> Result<Option<AuthUser>> {
         self.auth_service.get_user_by_session_token(token).await
+    }
+
+    pub async fn connect_player_by_token(&self, token: Uuid, sid: Sid) -> Result<Option<AuthUser>> {
+        // get user by token, disconnect user from old socket, update socket id
+        let user = self
+            .get_user_by_session_token(token)
+            .await?
+            .wrap_err("User not found")?;
+
+        if let Some(old_sid) = user.sid {
+            let old_sid = Sid::from_str(&old_sid)?;
+            // remove player from old room
+            self.game_service.leave_player(user.id, old_sid).await?;
+            // break old connection
+            self.game_service.disconnect_socket(old_sid)?;
+        }
+        self.auth_service.update_sid(user.id, sid).await
     }
 
     pub async fn get_profile(&self, user_id: Uuid) -> Result<Option<User>> {

@@ -113,7 +113,8 @@ impl Stage {
             Stage::Turn => "Turn",
             Stage::River => "River",
             Stage::Showdown => "Showdown",
-        }.into()
+        }
+        .into()
     }
 }
 

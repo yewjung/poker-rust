@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use eyre::{bail, ContextCompat, Result};
 use futures_util::FutureExt;
 use lazy_static::lazy_static;
@@ -9,17 +7,45 @@ use reqwest::StatusCode;
 use rnglib::{Language, RNG};
 use rust_socketio::asynchronous::Client as SocketClient;
 use rust_socketio::asynchronous::ClientBuilder;
-use rust_socketio::Payload;
+use rust_socketio::{Payload};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::fmt::Debug;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use tokio::sync::RwLock;
-
+use tokio::time::sleep;
 use types::domain::*;
 use types::state::{PlayerHand, SharedGameState, Timestamped};
 
 lazy_static! {
     pub static ref GAME_STATE: RwLock<Option<Timestamped<SharedGameState>>> = RwLock::new(None);
     pub static ref HAND_STATE: RwLock<Option<Timestamped<PlayerHand>>> = RwLock::new(None);
+    pub static ref CONNECTION_IS_CLOSE: AtomicBool = AtomicBool::new(false);
+}
+
+async fn reset_state<T>(state_lock: &RwLock<Option<T>>) {
+    loop {
+        if let Ok(state) = state_lock.try_write().as_deref_mut() {
+            *state = None;
+            return;
+        } else {
+            sleep(Duration::from_secs(1)).await;
+        }
+    }
+}
+
+pub async fn reset_game_state() {
+    reset_state(&GAME_STATE).await;
+}
+
+pub async fn reset_hand_state() {
+    reset_state(&HAND_STATE).await;
+}
+
+async fn update_connection_status() {
+    // update CONNECTION_IS_CLOSE to true
+    CONNECTION_IS_CLOSE.store(true, Ordering::Relaxed);
 }
 
 async fn update_state<T: for<'a> Deserialize<'a> + Debug>(
@@ -190,6 +216,7 @@ impl Client {
         let room_callback = |payload, _| update_state(payload, &GAME_STATE).boxed();
         let error_callback = |payload, _| default_callback(payload).boxed();
         let default_callback = |payload, _| default_callback(payload).boxed();
+        let close_callback = |_, _| update_connection_status().boxed();
 
         // Creates a GET request, upgrades and sends it.
         let token = self.token.clone().expect("No token");
@@ -201,6 +228,7 @@ impl Client {
                 .on("room", room_callback)
                 .on("service_error", error_callback)
                 .on("error", default_callback)
+                .on("close", close_callback)
                 .connect()
                 .await?,
         );

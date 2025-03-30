@@ -1,4 +1,5 @@
 use std::default::Default;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::data::{OnKeyEvent, OnTick, Screen, ScreenChange};
@@ -7,7 +8,7 @@ use crate::lobby::{lobby_screen_data, LobbyWidget};
 use crate::login::LoginScreenWidget;
 use crate::TOKEN_MANAGER;
 use chrono::{DateTime, Utc};
-use client::client::Client;
+use client::client::{Client, CONNECTION_IS_CLOSE};
 use color_eyre::eyre::ContextCompat;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyEvent};
@@ -46,7 +47,7 @@ impl App {
     /// Construct a new instance of [`App`].
     pub async fn new() -> Result<Self> {
         let token = get_token().ok();
-        // let token = Some("2b56ee42-0570-4410-8bb5-bd89ccaeb469".to_string());
+        // let token = Some("16cdde20-6268-4a91-b2e3-1198513e2460".to_string());
         let app = match token {
             Some(token) => {
                 let mut client = Client::new_with_token(token).await?;
@@ -87,6 +88,11 @@ impl App {
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
         while self.running {
+            if CONNECTION_IS_CLOSE.load(Ordering::Relaxed) {
+                self.error_message
+                    .replace("Connection to server lost".to_string().into());
+                self.running = false;
+            }
             terminal.draw(|frame| self.draw(frame))?;
             self.handle_crossterm_events().await?;
         }
@@ -158,9 +164,10 @@ impl App {
                 Screen::Lobby(ref mut data) => data.on_tick(&mut self.client).await,
                 Screen::InGame(ref mut data) => data.on_tick(&mut self.client).await,
             };
-            if let Err(e) = result {
+            if let Err(_) = result {
                 // server connection error
-                self.error_message.replace("Connection to server lost".to_string().into());
+                self.error_message
+                    .replace("Connection to server lost".to_string().into());
             }
         }
         Ok(())

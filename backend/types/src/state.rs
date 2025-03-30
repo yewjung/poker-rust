@@ -23,7 +23,6 @@ pub struct SharedGameState {
 }
 
 impl SharedGameState {
-
     pub fn pots_line(&self) -> Line {
         let pots = self
             .pots
@@ -39,8 +38,7 @@ impl SharedGameState {
     }
 
     pub fn max_bet(&self) -> u32 {
-        self
-            .players
+        self.players
             .iter()
             .filter(|p| !p.has_folded)
             .map(|p| p.bet)
@@ -142,7 +140,6 @@ pub struct PlayerState {
 }
 
 impl PlayerState {
-
     pub fn is_dealer(&self) -> bool {
         self.position.is_dealer()
     }

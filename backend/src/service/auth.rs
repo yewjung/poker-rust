@@ -1,5 +1,6 @@
 use bcrypt::{hash, verify, DEFAULT_COST};
 use eyre::{ensure, ContextCompat, Result};
+use socketioxide::socket::Sid;
 use sqlx::types::Uuid;
 
 use crate::domain::auth::AuthUser;
@@ -41,5 +42,9 @@ impl AuthService {
 
     pub async fn get_user_by_session_token(&self, token: Uuid) -> Result<Option<AuthUser>> {
         self.auth_repository.get_by_session_token(token).await
+    }
+
+    pub async fn update_sid(&self, user_id: Uuid, sid: Sid) -> Result<Option<AuthUser>> {
+        self.auth_repository.update_sid(user_id, sid).await
     }
 }

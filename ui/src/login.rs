@@ -80,7 +80,7 @@ impl LoginScreenData {
                         password: self.password_input.value().to_string(),
                     })
                     .await?;
-                TOKEN_MANAGER.set_password(&token)?;
+                let _ = TOKEN_MANAGER.set_password(&token);
                 client.update_profile_with_random_name().await?;
                 lobby::lobby_screen_data(client).await?.into()
             }
@@ -106,18 +106,22 @@ impl LoginScreenData {
     fn update_cursor_position(&mut self, top: Rect, bottom: Rect) {
         match self.focus {
             LoginScreenFocus::Email => {
-                self.cursor_position = Some((
-                    top.x + self.email_input.visual_cursor() as u16 + 1,
-                    top.y + 1,
-                )
-                    .into());
+                self.cursor_position = Some(
+                    (
+                        top.x + self.email_input.visual_cursor() as u16 + 1,
+                        top.y + 1,
+                    )
+                        .into(),
+                );
             }
             LoginScreenFocus::Password => {
-                self.cursor_position = Some((
-                    bottom.x + self.password_input.visual_cursor() as u16 + 1,
-                    bottom.y + 1,
-                )
-                    .into());
+                self.cursor_position = Some(
+                    (
+                        bottom.x + self.password_input.visual_cursor() as u16 + 1,
+                        bottom.y + 1,
+                    )
+                        .into(),
+                );
             }
             _ => self.cursor_position = None,
         }

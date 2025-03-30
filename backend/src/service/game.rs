@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use dashmap::mapref::one::RefMut;
 use eyre::{bail, ensure, ContextCompat, Result};
-use log::{debug, error, info};
+use log::{error, info};
 use poker::{Eval, Evaluator};
 use serde::Serialize;
 use socketioxide::socket::Sid;
@@ -143,7 +143,25 @@ impl GameService {
     fn join_player_to_ws_room(&self, room_id: Uuid, sid: Sid) {
         if let Some(operator) = self.io.of("/game") {
             if let Some(socket) = operator.get_socket(sid) {
+                socket.leave_all();
                 socket.join(room_id.to_string());
+            }
+        }
+    }
+
+    pub fn disconnect_socket(&self, sid: Sid) -> Result<()> {
+        if let Some(operator) = self.io.of("/game") {
+            if let Some(socket) = operator.get_socket(sid) {
+                socket.disconnect()?
+            }
+        }
+        Ok(())
+    }
+
+    fn remove_player_from_ws_room(&self, room_id: Uuid, sid: Sid) {
+        if let Some(operator) = self.io.of("/game") {
+            if let Some(socket) = operator.get_socket(sid) {
+                socket.leave(room_id.to_string());
             }
         }
     }
@@ -218,7 +236,7 @@ impl GameService {
         self.user_repository.create_user(name, balance).await
     }
 
-    pub async fn leave_player(&self, user_id: Uuid) -> Result<()> {
+    pub async fn leave_player(&self, user_id: Uuid, sid: Sid) -> Result<()> {
         let room_id = self
             .user_repository
             .get(user_id)
@@ -236,7 +254,9 @@ impl GameService {
             .get_room_for_update(room_id)
             .await?;
 
-        let player_count = self.leave_player_and_update_player(user_id, room_id).await;
+        let player_count = self
+            .leave_player_and_update_player(user_id, room_id, sid)
+            .await;
         let player_count = match player_count {
             Ok(player_count) => player_count,
             Err(e) => {
@@ -251,17 +271,25 @@ impl GameService {
         Ok(())
     }
 
-    async fn leave_player_and_update_player(&self, user_id: Uuid, room_id: Uuid) -> Result<usize> {
+    async fn leave_player_and_update_player(
+        &self,
+        user_id: Uuid,
+        room_id: Uuid,
+        sid: Sid,
+    ) -> Result<usize> {
         let mut room = self
             .room_repository
             .get_mut_lock(room_id)
             .wrap_err(Error::InvalidRoomId)?;
         let player_chips = room.leave_player(user_id);
-        debug!("chips to reimburse: {}", player_chips);
         self.user_repository
             .remove_player_and_reimburse_chips(user_id, player_chips as i64)
             .await?;
-        Ok(room.player_count())
+        let player_count = room.player_count();
+        self.remove_player_from_ws_room(room_id, sid);
+        self.service_action_required(ServiceRequiredAction::NoAction, room)
+            .await?;
+        Ok(player_count)
     }
 
     // this function takes the ServiceRequiredAction enum and perform the corresponding action

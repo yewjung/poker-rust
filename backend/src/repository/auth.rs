@@ -1,4 +1,5 @@
 use eyre::Result;
+use socketioxide::socket::Sid;
 use sqlx::types::Uuid;
 use sqlx::{PgPool, Row};
 
@@ -81,6 +82,21 @@ impl AuthUserRepository {
             "#,
         )
         .bind(token)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(Into::into)
+    }
+    pub async fn update_sid(&self, user_id: Uuid, sid: Sid) -> Result<Option<AuthUser>> {
+        sqlx::query_as(
+            r#"
+            UPDATE auth_users
+            SET sid = $1
+            WHERE id = $2
+            RETURNING *
+            "#,
+        )
+        .bind(sid.to_string())
+        .bind(user_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(Into::into)

@@ -11,4 +11,5 @@ pub struct AuthUser {
     pub session_token: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub sid: Option<String>,
 }

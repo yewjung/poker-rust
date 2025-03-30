@@ -53,7 +53,8 @@ impl LobbyScreenData {
                 (
                     username_area.x + self.username_input.visual_cursor() as u16 + 1,
                     username_area.y + 1,
-                ).into()
+                )
+                    .into(),
             );
         } else {
             self.cursor_position = None;
@@ -67,12 +68,10 @@ impl LobbyScreenData {
                 "<Enter>".light_blue().bold(),
                 " Cancel ".into(),
                 "<CTRL + E>".red().bold(),
-            ].into()
+            ]
+            .into()
         } else {
-            vec![
-                "Edit ".into(),
-                "<CTRL + E>".light_blue().bold(),
-            ].into()
+            vec!["Edit ".into(), "<CTRL + E>".light_blue().bold()].into()
         }
     }
 }
@@ -173,7 +172,9 @@ impl OnKeyEvent for LobbyScreenData {
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Enter) => {
                 if self.username_in_focus {
                     let username = self.username_input.value().to_string();
-                    let user = client.update_profile(UpdateProfileRequest { username }).await?;
+                    let user = client
+                        .update_profile(UpdateProfileRequest { username })
+                        .await?;
                     self.username_input = Input::new(user.name.clone());
                     self.user = user;
                     self.username_in_focus = self.username_in_focus.not();
@@ -214,7 +215,7 @@ impl OnKeyEvent for LobbyScreenData {
                     self.username_input.handle_event(&Event::Key(key));
                 }
                 ScreenChange::None
-            },
+            }
         };
         Ok(change)
     }

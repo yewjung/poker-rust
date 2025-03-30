@@ -1,9 +1,5 @@
-use std::cmp::PartialEq;
-use std::fmt::Display;
-use std::iter::zip;
-
 use ansi_to_tui::IntoText;
-use client::client::Client;
+use client::client::{reset_game_state, reset_hand_state, Client, GAME_STATE, HAND_STATE};
 use color_eyre::eyre;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use ratatui::buffer::Buffer;
@@ -11,6 +7,9 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Line, Modifier, StatefulWidget, Style, Widget};
 use ratatui::style::{Color, Stylize};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
+use std::cmp::PartialEq;
+use std::fmt::Display;
+use std::iter::zip;
 use tui_big_text::{BigText, PixelSize};
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
@@ -50,7 +49,7 @@ impl StatefulWidget for InGameWidget {
         outer_community_block.render(community, buf);
 
         let hand_areas: [_; MAX_NUM_OF_PLAYERS] = Layout::split_equal(hands, Direction::Horizontal);
-        let [_, actions, _] = Layout::horizontal([
+        let [_, actions, room_id_area] = Layout::horizontal([
             Constraint::Fill(1),
             Constraint::Percentage(50),
             Constraint::Fill(1),
@@ -91,7 +90,17 @@ impl StatefulWidget for InGameWidget {
         }
 
         action_paragraph(actions, state, buf);
+        room_id(room_id_area, state, buf);
     }
+}
+
+fn room_id(area: Rect, state: &InGameData, buf: &mut Buffer) {
+    let [_, area] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(area);
+    let room_id = state.game.id.to_string();
+    let room_id_text = format!("Room ID: {}", room_id);
+    let room_id_paragraph = Paragraph::new(room_id_text)
+        .right_aligned();
+    room_id_paragraph.render(area, buf);
 }
 
 fn action_paragraph(area: Rect, state: &mut InGameData, buf: &mut Buffer) {
@@ -308,7 +317,7 @@ impl InGameFocus {
         }
         match self {
             InGameFocus::Check => state.bet() >= state.game.max_bet(),
-            InGameFocus::Call => state.game.max_bet() - state.bet() <= state.chips(),
+            InGameFocus::Call => state.game.max_bet().saturating_sub(state.bet()) <= state.chips(),
             InGameFocus::Raise => state.chips() > state.game.max_bet(),
             InGameFocus::Fold => !state.folded(),
             InGameFocus::AllIn => state.chips() > 0,
@@ -343,6 +352,15 @@ pub fn in_game_data(user_id: Uuid, hand: PlayerHand, game: SharedGameState) -> I
 #[async_trait::async_trait]
 impl OnTick for InGameData {
     async fn on_tick(&mut self, _client: &mut Client) -> color_eyre::Result<()> {
+        // read GAME_STATE and HAND_STATE, then update self.game and self.hand
+        if let Ok(Some(game_state)) = GAME_STATE.try_read().as_deref() {
+            self.game = game_state.data.clone();
+        }
+
+        if let Ok(Some(hand_state)) = HAND_STATE.try_read().as_deref() {
+            self.hand = hand_state.data.clone();
+        }
+
         Ok(())
     }
 }
@@ -357,6 +375,8 @@ impl OnKeyEvent for InGameData {
         let change = match (key.kind, key.modifiers, key.code) {
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Esc) => {
                 client.leave().await?;
+                reset_game_state().await;
+                reset_hand_state().await;
                 lobby::lobby_screen_data(client).await?.into()
             }
             (KeyEventKind::Press, KeyModifiers::CONTROL, KeyCode::Char('c')) => ScreenChange::Quit,

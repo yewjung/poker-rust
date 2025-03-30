@@ -50,7 +50,7 @@ async fn main() -> Result<()> {
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL is not set");
     let mut config = Config::from_str(&database_url)?;
     migrations::runner().run_async(&mut config).await?;
-    let pool = PgPool::connect(&database_url).await.unwrap();
+    let pool = PgPool::connect(&database_url).await?;
 
     // repositories
     let room_repository = RoomRepository::new();
@@ -188,7 +188,7 @@ async fn take_action(
     Data(request): Data<ActionRequest>,
     HttpExtension(api): HttpExtension<Api>,
 ) {
-    let action = request.action.clone();
+    let action = request.action;
     match api.take_action(user_id, request).await {
         Ok(room) => {
             debug!(
@@ -208,7 +208,7 @@ async fn leave_game(
     SocketExtension(user_id): SocketExtension<Uuid>,
     HttpExtension(api): HttpExtension<Api>,
 ) {
-    match api.game_service.leave_player(user_id).await {
+    match api.game_service.leave_player(user_id, s.id).await {
         Ok(_) => debug!("User {} left socket connection", user_id),
         Err(e) => {
             let (_, message) = report_into_response(e);
@@ -230,10 +230,14 @@ async fn connection_handler(
     Data(token): Data<Uuid>,
     HttpExtension(api): HttpExtension<Api>,
 ) {
-    let user_id = match api.get_user_by_session_token(token).await {
+    let user_id = match api.connect_player_by_token(token, s.id).await {
         Ok(Some(auth_user)) => auth_user.id,
-        _ => {
+        Ok(None) => {
             error!("Failed to get user from token");
+            return;
+        }
+        Err(e) => {
+            error!("Failed to get user from token: {:?}", e);
             return;
         }
     };
