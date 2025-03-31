@@ -4339,6 +4339,7 @@ dependencies = [
  "chrono",
  "derive_more",
  "eyre",
+ "itertools 0.14.0",
  "poker",
  "rand 0.8.5",
  "ratatui",

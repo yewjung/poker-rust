@@ -19,3 +19,4 @@ socketioxide = { version="0.16.1", features = ["extensions"] }
 derive_more = {  version = "2.0.1", features = ["deref"] }
 strum = { version = "0.27.1", features = ["derive"] }
 ratatui = "0.29.0"
+itertools = "0.14.0"
