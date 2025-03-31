@@ -23,6 +23,14 @@ pub struct SharedGameState {
 }
 
 impl SharedGameState {
+
+    pub fn last_action_by_player(&self, player_id: Uuid) -> Option<&Action> {
+        self.players
+            .iter()
+            .find(|p| p.id == player_id)
+            .and_then(|p| p.last_action.as_ref())
+    }
+    
     pub fn pots_line(&self) -> Line {
         let pots = self
             .pots
@@ -146,7 +154,7 @@ impl PlayerState {
 }
 
 impl PlayerState {
-    pub fn top_title(&self) -> &str {
+    pub fn last_action(&self) -> &str {
         if self.has_folded {
             "Folded"
         } else {
@@ -154,7 +162,7 @@ impl PlayerState {
         }
     }
 
-    pub fn bottom_title(&self) -> String {
+    pub fn name_title(&self) -> String {
         // truncate if longer than 13 characters
         // apply ellipsis
         if self.name.len() > 13 {

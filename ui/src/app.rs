@@ -1,5 +1,4 @@
 use std::default::Default;
-use std::fmt::format;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -47,32 +46,32 @@ fn get_token() -> Result<String> {
 impl App {
     /// Construct a new instance of [`App`].
     pub async fn new() -> Result<Self> {
-        // let token = get_token().ok();
-        let token = Some("16cdde20-6268-4a91-b2e3-1198513e2460".to_string());
+        let token = get_token().ok();
+        // let token = Some("16cdde20-6268-4a91-b2e3-1198513e2460".to_string());
         let app = match token {
             Some(token) => {
                 let mut client = Client::new_with_token(token).await?;
                 client.create_ws_connection().await?;
-                // let lobby = lobby_screen_data(&mut client).await?;
-                let user_id = client
-                    .user
-                    .as_ref()
-                    .map(|u| u.id)
-                    .wrap_err("Failed to get user")?;
-                let in_game_data = in_game_data(
-                    user_id,
-                    PlayerHand([
-                        Some(SerdeCard(Card::new(Rank::Eight, Suit::Diamonds))),
-                        Some(SerdeCard(Card::new(Rank::Nine, Suit::Hearts))),
-                    ]),
-                    SharedGameState::filled_state_for_test(),
-                );
+                let lobby = lobby_screen_data(&mut client).await?;
+                // let user_id = client
+                //     .user
+                //     .as_ref()
+                //     .map(|u| u.id)
+                //     .wrap_err("Failed to get user")?;
+                // let in_game_data = in_game_data(
+                //     user_id,
+                //     PlayerHand([
+                //         Some(SerdeCard(Card::new(Rank::Eight, Suit::Diamonds))),
+                //         Some(SerdeCard(Card::new(Rank::Nine, Suit::Hearts))),
+                //     ]),
+                //     SharedGameState::filled_state_for_test(),
+                // );
                 Self {
                     running: true,
                     client,
                     error_message: None,
-                    // screen: Screen::Lobby(lobby),
-                    screen: Screen::InGame(in_game_data),
+                    screen: Screen::Lobby(lobby),
+                    // screen: Screen::InGame(in_game_data),
                 }
             }
             None => Self {

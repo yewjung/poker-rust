@@ -1,5 +1,7 @@
 use std::cmp::PartialEq;
 use std::fmt::Display;
+use std::iter::zip;
+
 use ansi_to_tui::IntoText;
 use client::client::{reset_game_state, reset_hand_state, Client, GAME_STATE, HAND_STATE};
 use color_eyre::eyre;
@@ -9,7 +11,7 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Line, Modifier, StatefulWidget, Style, Widget};
 use ratatui::style::{Color, Stylize};
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
-use std::iter::zip;
+use tap::TapOptional;
 use tui_big_text::{BigText, PixelSize};
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
@@ -18,9 +20,9 @@ use types::room::{Stage, MAX_NUM_OF_PLAYERS};
 use types::state::{HandState, PlayerHand, PlayerState, SerdeCard, SharedGameState};
 use uuid::Uuid;
 
-use crate::data::{highlight, OnKeyEvent, OnTick, ScreenChange};
+use crate::data::{highlight, OnKeyEvent, OnTick, ScreenChange, Sound};
 use crate::extension::Splittable;
-use crate::{lobby, lookup_image, play_sound, CHECK_SOUND, CHIPS_SOUND, DING_SOUND};
+use crate::{lobby, lookup_image};
 
 const ACTION_BUTTONS: [InGameFocus; 5] = [
     InGameFocus::Check,
@@ -133,8 +135,8 @@ fn action_paragraph(area: Rect, state: &mut InGameData, buf: &mut Buffer) {
 
 fn hand_paragraph(area: Rect, state: &PlayerState, in_turn: bool, buf: &mut Buffer) {
     let mut outer_block = Block::bordered()
-        .title(Line::from(state.top_title()).centered())
-        .title_bottom(Line::from(state.bottom_title()).left_aligned())
+        .title(Line::from(state.last_action()).centered())
+        .title_bottom(Line::from(state.name_title()).left_aligned())
         .border_type(BorderType::Rounded);
 
     if in_turn {
@@ -184,6 +186,10 @@ pub struct InGameData {
     pub game: SharedGameState,
     pub raise_input: Input,
     pub focus: Option<InGameFocus>,
+    // The player that was in turn in the previous frame
+    pub prev_frame_player: Option<Uuid>,
+    // The previous frame's stage of the game
+    pub prev_frame_stage: Stage,
 }
 
 impl InGameData {
@@ -247,14 +253,13 @@ impl Display for InGameFocus {
 }
 
 impl InGameFocus {
-
-    fn sound_bytes(&self) -> &'static [u8] {
+    fn sound(&self) -> Sound {
         match self {
-            InGameFocus::Check => CHECK_SOUND,
-            InGameFocus::Call => CHIPS_SOUND,
-            InGameFocus::Raise => CHIPS_SOUND,
-            InGameFocus::Fold => CHECK_SOUND,
-            InGameFocus::AllIn => CHIPS_SOUND,
+            InGameFocus::Check => Sound::Check,
+            InGameFocus::Call => Sound::Chips,
+            InGameFocus::Raise => Sound::Chips,
+            InGameFocus::Fold => Sound::Check,
+            InGameFocus::AllIn => Sound::Chips,
         }
     }
 
@@ -321,7 +326,7 @@ impl InGameFocus {
     }
 
     fn enabled(&self, state: &InGameData) -> bool {
-        if matches!(state.game.stage, Stage::NotEnoughPlayers | Stage::Showdown) {
+        if state.game.current_player != Some(state.user_id) {
             return false;
         }
         match self {
@@ -370,6 +375,33 @@ impl OnTick for InGameData {
             self.hand = hand_state.data.clone();
         }
 
+        // play sounds for player's actions
+        if self.prev_frame_player != self.game.current_player {
+            self.prev_frame_player
+                .and_then(|prev| self.game.last_action_by_player(prev))
+                .map(|action| action.as_ref())
+                .tap_some(|focus: &&InGameFocus| focus.sound().play());
+
+            if matches!(self.game.current_player, Some(curr) if curr == self.user_id) {
+                Sound::Ding.play();
+            }
+
+            self.prev_frame_player = self.game.current_player;
+        }
+
+        // play sounds for drawing cards
+        if self.prev_frame_stage != self.game.stage {
+            match self.game.stage {
+                Stage::PreFlop => {
+                    let no_of_cards = self.game.players.len() * 2;
+                    Sound::Deal.play_repeat(no_of_cards);
+                }
+                Stage::Flop => Sound::Deal.play_repeat(3),
+                Stage::Turn | Stage::River => Sound::Deal.play(),
+                _ => {}
+            }
+            self.prev_frame_stage = self.game.stage.clone();
+        }
         Ok(())
     }
 }
@@ -413,7 +445,7 @@ impl OnKeyEvent for InGameData {
             }
             (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Enter) => {
                 if let Some(focus) = &self.focus {
-                    play_sound(focus.sound_bytes());
+                    focus.sound().play();
                     let action = focus.to_action_request(self)?;
                     client.action(action).await?;
                 };
@@ -422,5 +454,17 @@ impl OnKeyEvent for InGameData {
             _ => ScreenChange::None,
         };
         Ok(change)
+    }
+}
+
+impl AsRef<InGameFocus> for Action {
+    fn as_ref(&self) -> &InGameFocus {
+        match self {
+            Action::Check => &InGameFocus::Check,
+            Action::Call => &InGameFocus::Call,
+            Action::Raise(_) => &InGameFocus::Raise,
+            Action::Fold => &InGameFocus::Fold,
+            Action::AllIn => &InGameFocus::AllIn,
+        }
     }
 }
