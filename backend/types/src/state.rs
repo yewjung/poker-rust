@@ -23,14 +23,13 @@ pub struct SharedGameState {
 }
 
 impl SharedGameState {
-
     pub fn last_action_by_player(&self, player_id: Uuid) -> Option<&Action> {
         self.players
             .iter()
             .find(|p| p.id == player_id)
             .and_then(|p| p.last_action.as_ref())
     }
-    
+
     pub fn pots_line(&self) -> Line {
         let pots = self
             .pots

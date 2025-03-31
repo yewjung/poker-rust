@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::Duration;
 
 use dashmap::mapref::one::RefMut;
 use eyre::{bail, ensure, ContextCompat, Result};
@@ -9,6 +10,7 @@ use serde::Serialize;
 use socketioxide::socket::Sid;
 use socketioxide::SocketIo;
 use tap::TapFallible;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 use types::domain::{Action, RoomInfo, ServiceEvent, ServiceRequiredAction};
@@ -318,6 +320,8 @@ impl GameService {
                     SharedGameState::from_room(room.clone(), true).with_eval(hands_eval);
                 self.emit_to_room(room_id, ServiceEvent::Room, &Timestamped::new(game_state))
                     .await;
+                // sleep for 5 seconds to show the result
+                sleep(Duration::from_secs(5)).await;
 
                 room.split_pot(winners)?;
                 Box::pin(self.service_action_required(room.proceed()?, room)).await
@@ -1213,58 +1217,67 @@ mod tests {
 
     #[rstest::rstest]
     #[case(
-        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
-        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
-        "Bob",
-        false
-    )]
-    #[case(
-        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        PlayerState { bet: 0, has_taken_turn: true, has_folded: true },
         PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         "Alice",
-        false
-    )]
-    #[case(
-        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
-        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
-        "Bob",
         true
     )]
     #[case(
-        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        "Bob",
+        false
+    )]
+    #[case(
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         "Alice",
         false
+    )]
+    #[case(
+        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
+        "Bob",
+        true // true because all bets are equal, can proceed to next stage
+    )]
+    #[case(
+        PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
+        PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
+        "Alice",
+        false // false because it is Bob's turn to match alice's bet
     )]
     #[case(
         PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 5, has_taken_turn: true, has_folded: false },
         "Alice",
-        false
+        false // false because it is Bob's turn to match alice's bet
     )]
     #[case(
         PlayerState { bet: 15, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 10, has_taken_turn: true, has_folded: true },
         "Bob",
-        true
+        true // true because bob has folded, leaving Alice the only player left
     )]
     #[case(
         PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 1000, has_taken_turn: true, has_folded: false },
         "Bob",
-        true
+        true // true because both players all-in, can proceed to next stage
     )]
     #[case(
+        // alice all in
         PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
+        // bob all in
         PlayerState { bet: 1000, has_taken_turn: true, has_folded: false },
         "Alice",
-        true
+        true // true because both players all-in, can proceed to next stage
     )]
     #[case(
+        // alice all in
         PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 22, has_taken_turn: true, has_folded: false },
         "Alice",
-        false
+        false // false because it is Bob's turn to match Alice's bet
     )]
     fn test_can_proceed_to_next_stage(
         #[case] PlayerState {

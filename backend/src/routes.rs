@@ -1,4 +1,5 @@
 use std::str::FromStr;
+
 use eyre::{ensure, ContextCompat, Result};
 use socketioxide::socket::Sid;
 use sqlx::types::Uuid;

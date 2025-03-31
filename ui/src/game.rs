@@ -272,7 +272,11 @@ impl InGameFocus {
         let line = match self {
             InGameFocus::Raise => Line::from(state.raise_input.value().to_string()).centered(),
             InGameFocus::Call => highlight(
-                format!("{} ({})", self, state.game.max_bet().saturating_sub(state.bet())),
+                format!(
+                    "{} ({})",
+                    self,
+                    state.game.max_bet().saturating_sub(state.bet())
+                ),
                 state.focus.as_ref().is_some_and(|f| f == self),
             )
             .into_centered_line(),

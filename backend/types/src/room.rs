@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use eyre::{bail, ensure, ContextCompat, Report, Result};
+use itertools::Itertools;
 use poker::{box_cards, Card};
 use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
@@ -8,10 +9,9 @@ use socketioxide::socket::Sid;
 use sqlx::Type;
 use uuid::Uuid;
 
-use crate::domain::{Action, User};
-
 use crate::deck::Deck;
 use crate::domain::ServiceRequiredAction;
+use crate::domain::{Action, User};
 use crate::error::Error;
 
 #[derive(Debug, Clone)]
@@ -155,6 +155,10 @@ impl Room {
             player_joining_next_round: Vec::new(),
             player_in_turn: None,
         }
+    }
+
+    pub fn max_bet(&self) -> u32 {
+        self.players.iter().map(|p| p.bet).max().unwrap_or_default()
     }
 
     pub fn new_with_id(id: Uuid) -> Self {
@@ -442,20 +446,24 @@ impl Room {
             Stage::NotEnoughPlayers => self.players.len() >= 2,
             Stage::Showdown => true,
             _ => {
-                if self
+                let players_in_play: Vec<_> = self
                     .players
                     .iter()
                     .filter(|p| !p.has_folded && p.chips > 0)
-                    .any(|p| !p.has_taken_turn)
-                {
-                    return false;
+                    .collect();
+
+                match players_in_play.as_slice() {
+                    // this mean all players have no more chips
+                    // draw remaining community cards, and game will proceed to showdown
+                    [] => true,
+                    // if this is true, it means game ends, find winners,
+                    // but don't draw anymore community cards
+                    [p] => p.bet >= self.max_bet(),
+                    players => {
+                        players.iter().all(|p| p.has_taken_turn)
+                            && players.iter().map(|p| p.bet).all_equal()
+                    }
                 }
-                let max_bet = self.players.iter().map(|p| p.bet).max().unwrap_or_default();
-                !self
-                    .players
-                    .iter()
-                    .filter(|p| self.player_in_turn.is_some_and(|q| q != p.id))
-                    .any(|p| p.chips > 0 && p.bet < max_bet && !p.has_folded)
             }
         }
     }
@@ -651,6 +659,68 @@ impl Room {
             Stage::Turn => self.stage = Stage::River,
             Stage::River => self.stage = Stage::Showdown,
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::deck::Deck;
+    use crate::domain::{Action, ServiceRequiredAction};
+    use crate::room::{Hand, Player, Position, Room, Stage};
+    use eyre::Result;
+    use poker::{cards, Card};
+    use uuid::Uuid;
+
+    #[test]
+    fn test_take_action() -> Result<()> {
+        let curr_player = Uuid::parse_str("ac735f48-3e55-4c63-b629-f3822eaba598")?;
+        let mut room = Room {
+            id: Default::default(),
+            players: vec![
+                Player {
+                    id: curr_player,
+                    name: "yewjung".to_string(),
+                    hand: Some(Hand(cards!(
+                        Ace, Clubs;
+                        Nine, Diamonds;
+                    ))),
+                    chips: 99,
+                    bet: 1,
+                    has_folded: false,
+                    position: Position::DealerAndSmallBlind,
+                    has_taken_turn: false,
+                    sid: Default::default(),
+                    is_connected: true,
+                    last_action: None,
+                },
+                Player {
+                    id: Uuid::new_v4(),
+                    name: "yewjung2".to_string(),
+                    hand: Some(Hand(cards!(
+                        Four, Clubs;
+                        Ace, Diamonds;
+                    ))),
+                    chips: 98,
+                    bet: 2,
+                    has_folded: false,
+                    position: Position::BigBlind,
+                    has_taken_turn: false,
+                    sid: Default::default(),
+                    is_connected: true,
+                    last_action: None,
+                },
+            ],
+            deck: Deck::new(),
+            community_cards: vec![],
+            stage: Stage::PreFlop,
+            pots: vec![],
+            player_joining_next_round: vec![],
+            player_in_turn: Some(curr_player),
+        };
+
+        let service_action = room.take_action(curr_player, Action::Fold)?;
+        assert_eq!(service_action, ServiceRequiredAction::FindWinners);
         Ok(())
     }
 }
