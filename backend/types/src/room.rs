@@ -6,7 +6,6 @@ use poker::{box_cards, Card};
 use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
 use socketioxide::socket::Sid;
-use sqlx::Type;
 use uuid::Uuid;
 
 use crate::deck::Deck;
@@ -92,8 +91,7 @@ impl Player {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Type, Serialize, Deserialize, Default)]
-#[sqlx(rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum Stage {
     #[default]
     NotEnoughPlayers,
@@ -101,7 +99,21 @@ pub enum Stage {
     Flop,
     Turn,
     River,
-    Showdown,
+    Showdown(bool), // bool indicates all community cards need to be dealt
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ProceedType {
+    NoAction,
+    Normal,
+    ShowdownWithoutDealing,
+    ShowdownWithDealing,
+}
+
+impl ProceedType {
+    pub fn can_proceed(&self) -> bool {
+        matches!(self, Self::Normal | Self::ShowdownWithDealing | Self::ShowdownWithoutDealing)
+    }
 }
 
 impl Stage {
@@ -112,9 +124,13 @@ impl Stage {
             Stage::Flop => "Flop",
             Stage::Turn => "Turn",
             Stage::River => "River",
-            Stage::Showdown => "Showdown",
+            Stage::Showdown(_) => "Showdown",
         }
         .into()
+    }
+
+    pub fn is_showdown(&self) -> bool {
+        matches!(self, Stage::Showdown(_))
     }
 }
 
@@ -391,10 +407,6 @@ impl Room {
             .collect()
     }
 
-    pub fn is_showdown(&self) -> bool {
-        self.stage == Stage::Showdown && self.community_cards.len() == 5
-    }
-
     pub fn split_pot(&mut self, winners: Vec<(u32, HashSet<Uuid>)>) -> Result<()> {
         for (amount, winner_ids) in winners {
             let earnings = amount / winner_ids.len() as u32;
@@ -441,27 +453,52 @@ impl Room {
     }
 
     /// Check if all non-folded players have the same bet
-    pub fn can_proceed_to_next_stage(&self) -> bool {
+    pub fn can_proceed_to_next_stage(&self) -> ProceedType {
         match self.stage {
-            Stage::NotEnoughPlayers => self.players.len() >= 2,
-            Stage::Showdown => true,
-            _ => {
-                let players_in_play: Vec<_> = self
-                    .players
-                    .iter()
-                    .filter(|p| !p.has_folded && p.chips > 0)
-                    .collect();
+            Stage::NotEnoughPlayers => if self.players.len() >= 2 {
+                ProceedType::Normal
+            } else {
+                ProceedType::NoAction
+            },
+            Stage::Showdown(_) => ProceedType::Normal,
+            _ => self.proceed_type(),
+        }
+    }
 
-                match players_in_play.as_slice() {
-                    // this mean all players have no more chips
-                    // draw remaining community cards, and game will proceed to showdown
-                    [] => true,
-                    // if this is true, it means game ends, find winners,
-                    // but don't draw anymore community cards
-                    [p] => p.bet >= self.max_bet(),
-                    players => {
-                        players.iter().all(|p| p.has_taken_turn)
-                            && players.iter().map(|p| p.bet).all_equal()
+    fn proceed_type(&self) -> ProceedType {
+        let players_in_play: Vec<_> = self.players
+            .iter()
+            .filter(|p| !p.has_folded)
+            .collect();
+        match players_in_play.as_slice() {
+            // all players have folded
+            [] =>  unreachable!(),
+            // this mean all but one player has folded
+            [_] => ProceedType::ShowdownWithoutDealing,
+            players => {
+                let remaining_players: Vec<_> = players
+                    .iter()
+                    .filter(|p| p.chips > 0)
+                    .collect();
+                match remaining_players.as_slice() {
+                    // this means all players have no more chips, but none of them folded
+                    [] => ProceedType::ShowdownWithDealing,
+                    [p] => if p.bet == self.max_bet() {
+                        // this means all but one player has chips, but none of them folded,
+                        // and all bets have equaled
+                        ProceedType::ShowdownWithDealing
+                    } else {
+                        // this means all but one player has chips, but none of them folded,
+                        // but it is up to the player to equal or raise the bet
+                        ProceedType::NoAction
+                    },
+                    other_players => {
+                        if other_players.iter().all(|p| p.has_taken_turn)
+                            && other_players.iter().map(|p| p.bet).all_equal() {
+                            ProceedType::Normal
+                        } else {
+                            ProceedType::NoAction
+                        }
                     }
                 }
             }
@@ -512,8 +549,9 @@ impl Room {
     }
 
     pub fn proceed(&mut self) -> Result<ServiceRequiredAction> {
-        if self.can_proceed_to_next_stage() {
-            self.proceed_to_next_stage()?;
+        let proceed_type = self.can_proceed_to_next_stage();
+        if proceed_type.can_proceed() {
+            self.proceed_to_next_stage(proceed_type)?;
             self.setup_stage()
         } else if self.stage == Stage::NotEnoughPlayers {
             Ok(ServiceRequiredAction::NoAction)
@@ -536,7 +574,7 @@ impl Room {
 
     fn setup_stage(&mut self) -> Result<ServiceRequiredAction> {
         match self.stage {
-            Stage::NotEnoughPlayers => {}
+            Stage::NotEnoughPlayers => self.reset_table(),
             Stage::PreFlop => {
                 self.start_game()?;
                 return Ok(ServiceRequiredAction::PlayerReceiveCards);
@@ -553,7 +591,7 @@ impl Room {
                 self.deal_community_card(Stage::River)?;
                 self.player_in_turn = Some(self.player_to_act_first()?);
             }
-            Stage::Showdown => {
+            Stage::Showdown(true) => {
                 match self.community_cards.len() {
                     0 => {
                         self.deal_community_card(Stage::Flop)?;
@@ -573,13 +611,17 @@ impl Room {
                 self.player_in_turn = None;
                 return Ok(ServiceRequiredAction::FindWinners);
             }
+            Stage::Showdown(false) => {
+                self.player_in_turn = None;
+                return Ok(ServiceRequiredAction::FindWinners);
+            }
         }
         Ok(ServiceRequiredAction::NoAction)
     }
 
     fn end_stage(&mut self) -> Result<()> {
         match self.stage {
-            Stage::NotEnoughPlayers | Stage::Showdown => {}
+            Stage::NotEnoughPlayers | Stage::Showdown(_) => {}
             Stage::PreFlop | Stage::Flop | Stage::Turn | Stage::River => {
                 // create side pot if needed
                 let mut bets = self
@@ -625,21 +667,20 @@ impl Room {
         Ok(())
     }
 
-    fn proceed_to_next_stage(&mut self) -> Result<()> {
+    fn proceed_to_next_stage(&mut self, proceed_type: ProceedType) -> Result<()> {
         self.end_stage()?;
-        if self
-            .players
-            .iter()
-            .filter(|p| !p.has_folded && p.chips > 0)
-            .count()
-            <= 1
-            && self.stage != Stage::Showdown
-        {
-            self.stage = Stage::Showdown;
+        let showdown = match proceed_type {
+            ProceedType::NoAction => unreachable!("Impossible to reach this state"),
+            ProceedType::Normal => None,
+            ProceedType::ShowdownWithoutDealing => Some(Stage::Showdown(false)),
+            ProceedType::ShowdownWithDealing => Some(Stage::Showdown(true)),
+        };
+        if let Some(showdown_stage) = showdown {
+            self.stage = showdown_stage;
             return Ok(());
         }
         match self.stage {
-            Stage::Showdown => {
+            Stage::Showdown(_) => {
                 self.seat_players();
                 if self.players.len() >= 2 {
                     self.stage = Stage::PreFlop
@@ -657,7 +698,7 @@ impl Room {
             Stage::PreFlop => self.stage = Stage::Flop,
             Stage::Flop => self.stage = Stage::Turn,
             Stage::Turn => self.stage = Stage::River,
-            Stage::River => self.stage = Stage::Showdown,
+            Stage::River => self.stage = Stage::Showdown(true),
         }
         Ok(())
     }
@@ -665,12 +706,13 @@ impl Room {
 
 #[cfg(test)]
 mod tests {
+    use eyre::Result;
+    use poker::cards;
+    use uuid::Uuid;
+
     use crate::deck::Deck;
     use crate::domain::{Action, ServiceRequiredAction};
     use crate::room::{Hand, Player, Position, Room, Stage};
-    use eyre::Result;
-    use poker::{cards, Card};
-    use uuid::Uuid;
 
     #[test]
     fn test_take_action() -> Result<()> {

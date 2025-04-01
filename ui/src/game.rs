@@ -6,6 +6,7 @@ use ansi_to_tui::IntoText;
 use client::client::{reset_game_state, reset_hand_state, Client, GAME_STATE, HAND_STATE};
 use color_eyre::eyre;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use log::debug;
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::prelude::{Line, Modifier, StatefulWidget, Style, Widget};
@@ -135,7 +136,7 @@ fn action_paragraph(area: Rect, state: &mut InGameData, buf: &mut Buffer) {
 
 fn hand_paragraph(area: Rect, state: &PlayerState, in_turn: bool, buf: &mut Buffer) {
     let mut outer_block = Block::bordered()
-        .title(Line::from(state.last_action()).centered())
+        .title(Line::from(state.title_top()).centered())
         .title_bottom(Line::from(state.name_title()).left_aligned())
         .border_type(BorderType::Rounded);
 
@@ -394,17 +395,46 @@ impl OnTick for InGameData {
         }
 
         // play sounds for drawing cards
-        if self.prev_frame_stage != self.game.stage {
-            match self.game.stage {
-                Stage::PreFlop => {
-                    let no_of_cards = self.game.players.len() * 2;
-                    Sound::Deal.play_repeat(no_of_cards);
-                }
-                Stage::Flop => Sound::Deal.play_repeat(3),
-                Stage::Turn | Stage::River => Sound::Deal.play(),
-                _ => {}
+        match (&self.prev_frame_stage, &self.game.stage) {
+            // if the stage is the same, do nothing
+            (Stage::NotEnoughPlayers, Stage::NotEnoughPlayers) => {},
+            (Stage::PreFlop, Stage::PreFlop) => {},
+            (Stage::Flop, Stage::Flop) => {},
+            (Stage::Turn, Stage::Turn) => {},
+            (Stage::River, Stage::River) => {},
+            (Stage::Showdown(_), Stage::Showdown(_)) => {},
+
+            // if the stage is different, reset the raise input
+            (_, Stage::NotEnoughPlayers) => self.prev_frame_stage = self.game.stage.clone(),
+            (_, Stage::PreFlop) => {
+                let no_of_cards = self.game.players.len() * 2;
+                Sound::Deal.play_repeat(no_of_cards);
+                self.prev_frame_stage = self.game.stage.clone();
             }
-            self.prev_frame_stage = self.game.stage.clone();
+            (_, Stage::Flop) => {
+                Sound::Deal.play_repeat(3);
+                self.prev_frame_stage = self.game.stage.clone();
+            },
+            (_, Stage::Turn | Stage::River) => {
+                Sound::Deal.play();
+                self.prev_frame_stage = self.game.stage.clone();
+            },
+
+            // showdown scenarios
+            (Stage::NotEnoughPlayers | Stage::PreFlop, Stage::Showdown(true)) => {
+                Sound::Deal.play_repeat(5);
+                self.prev_frame_stage = self.game.stage.clone();
+            },
+            (Stage::Flop, Stage::Showdown(true)) => {
+                Sound::Deal.play_repeat(2);
+                self.prev_frame_stage = self.game.stage.clone();
+            },
+            (Stage::Turn, Stage::Showdown(true)) => {
+                Sound::Deal.play_repeat(1);
+                self.prev_frame_stage = self.game.stage.clone();
+            },
+            (Stage::River, Stage::Showdown(true)) => self.prev_frame_stage = self.game.stage.clone(),
+            (_, Stage::Showdown(false)) => self.prev_frame_stage = self.game.stage.clone(),
         }
         Ok(())
     }
@@ -432,6 +462,15 @@ impl OnKeyEvent for InGameData {
                     .map_or_else(|| InGameFocus::first_enabled(self), |f| f.switch(self));
                 ScreenChange::None
             }
+            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Enter) => {
+                if let Some(focus) = &self.focus {
+                    focus.sound().play();
+                    let action = focus.to_action_request(self)?;
+                    client.action(action).await?;
+                    self.raise_input.reset();
+                };
+                ScreenChange::None
+            }
             (KeyEventKind::Press, KeyModifiers::NONE, _)
                 if self
                     .focus
@@ -445,14 +484,6 @@ impl OnKeyEvent for InGameData {
                 } else {
                     self.raise_input.handle_event(&Event::Key(key));
                 }
-                ScreenChange::None
-            }
-            (KeyEventKind::Press, KeyModifiers::NONE, KeyCode::Enter) => {
-                if let Some(focus) = &self.focus {
-                    focus.sound().play();
-                    let action = focus.to_action_request(self)?;
-                    client.action(action).await?;
-                };
                 ScreenChange::None
             }
             _ => ScreenChange::None,

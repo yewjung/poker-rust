@@ -153,8 +153,10 @@ impl PlayerState {
 }
 
 impl PlayerState {
-    pub fn last_action(&self) -> &str {
-        if self.has_folded {
+    pub fn title_top(&self) -> &str {
+        if let Some(eval) = &self.eval {
+            eval
+        } else if self.has_folded {
             "Folded"
         } else {
             self.last_action.as_ref().map(AsRef::as_ref).unwrap_or("")

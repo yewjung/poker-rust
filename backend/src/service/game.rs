@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use dashmap::mapref::one::RefMut;
 use eyre::{bail, ensure, ContextCompat, Result};
+use itertools::Itertools;
 use log::{error, info};
 use poker::{Eval, Evaluator};
 use serde::Serialize;
@@ -15,7 +16,7 @@ use uuid::Uuid;
 
 use types::domain::{Action, RoomInfo, ServiceEvent, ServiceRequiredAction};
 use types::error::Error;
-use types::room::{Hand, Player, Room};
+use types::room::{Hand, Player, Room, Stage};
 use types::state::{PlayerHand, SharedGameState, Timestamped};
 
 use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
@@ -51,8 +52,23 @@ impl GameService {
         self.room_info_repository.get_all().await
     }
     pub fn find_winners(&self, room: &Room) -> Result<GameResult> {
-        ensure!(room.is_showdown(), "Game is not in the showdown stage yet");
-
+        ensure!(
+            room.stage.is_showdown(),
+            "Game is not in the showdown stage yet"
+        );
+        // in special case where stage is Showdown(false), evaluation is not needed, winner should be the last man standing
+        if matches!(room.stage, Stage::Showdown(false)) {
+            let sole_player = room
+                .players
+                .iter()
+                .find_or_first(|p| !p.has_folded)
+                .wrap_err("No player left in the game")?;
+            let total_pot = room.pots.iter().map(|pot| pot.amount).sum();
+            return Ok(GameResult {
+                hands_eval: Default::default(),
+                winners: vec![(total_pot, HashSet::from([sole_player.id]))],
+            });
+        }
         let hands_eval = room
             .players_cards()
             .into_iter()
@@ -357,7 +373,7 @@ mod tests {
     use socketioxide::extract::SocketRef;
     use std::str::FromStr;
     use types::deck::Deck;
-    use types::room::{Position, Pot, Stage};
+    use types::room::{Position, Pot, ProceedType, Stage};
 
     use types::domain::User;
 
@@ -1111,7 +1127,7 @@ mod tests {
             ],
             deck: Deck::new(),
             community_cards: cards!("6s 7s 8s 9s Ts").try_collect()?,
-            stage: Stage::Showdown,
+            stage: Stage::Showdown(true),
             pots: vec![Pot {
                 amount: 0,
                 players: HashSet::from([Uuid::from_u128(1), Uuid::from_u128(2)]),
@@ -1220,49 +1236,52 @@ mod tests {
         PlayerState { bet: 0, has_taken_turn: true, has_folded: true },
         PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         "Alice",
-        true
+        ProceedType::ShowdownWithoutDealing
+        // true
     )]
     #[case(
         PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         "Bob",
-        false
+        ProceedType::NoAction
+        // false
     )]
     #[case(
         PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         "Alice",
-        false
+        ProceedType::NoAction
+        // false
     )]
     #[case(
         PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
         "Bob",
-        true // true because all bets are equal, can proceed to next stage
+        ProceedType::Normal // all bets are equal, can proceed to next stage
     )]
     #[case(
         PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 0, has_taken_turn: false, has_folded: false },
         "Alice",
-        false // false because it is Bob's turn to match alice's bet
+        ProceedType::NoAction // it is Bob's turn to match alice's bet
     )]
     #[case(
         PlayerState { bet: 10, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 5, has_taken_turn: true, has_folded: false },
         "Alice",
-        false // false because it is Bob's turn to match alice's bet
+        ProceedType::NoAction // because it is Bob's turn to match alice's bet
     )]
     #[case(
         PlayerState { bet: 15, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 10, has_taken_turn: true, has_folded: true },
         "Bob",
-        true // true because bob has folded, leaving Alice the only player left
+        ProceedType::ShowdownWithoutDealing // true because bob has folded, leaving Alice the only player left
     )]
     #[case(
         PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 1000, has_taken_turn: true, has_folded: false },
         "Bob",
-        true // true because both players all-in, can proceed to next stage
+        ProceedType::ShowdownWithDealing // true because both players all-in, can proceed to next stage
     )]
     #[case(
         // alice all in
@@ -1270,14 +1289,14 @@ mod tests {
         // bob all in
         PlayerState { bet: 1000, has_taken_turn: true, has_folded: false },
         "Alice",
-        true // true because both players all-in, can proceed to next stage
+        ProceedType::ShowdownWithDealing // true because both players all-in, can proceed to next stage
     )]
     #[case(
         // alice all in
         PlayerState { bet: 500, has_taken_turn: true, has_folded: false },
         PlayerState { bet: 22, has_taken_turn: true, has_folded: false },
         "Alice",
-        false // false because it is Bob's turn to match Alice's bet
+        ProceedType::NoAction // false because it is Bob's turn to match Alice's bet
     )]
     fn test_can_proceed_to_next_stage(
         #[case] PlayerState {
@@ -1291,7 +1310,7 @@ mod tests {
             has_folded: bob_has_folded,
         }: PlayerState,
         #[case] player_in_turn: &str,
-        #[case] can_proceed: bool,
+        #[case] proceed_type: ProceedType,
     ) -> Result<()> {
         let room = Room {
             id: Uuid::new_v4(),
@@ -1337,7 +1356,7 @@ mod tests {
                 Some(Uuid::from_u128(2))
             },
         };
-        assert_eq!(room.can_proceed_to_next_stage(), can_proceed);
+        assert_eq!(room.can_proceed_to_next_stage(), proceed_type);
         Ok(())
     }
 
@@ -1405,7 +1424,7 @@ mod tests {
         room.take_action(david_id, Action::Call)?;
 
         // Game skips to Showdown resets to PreFlop
-        assert_eq!(room.stage, Stage::Showdown);
+        assert_eq!(room.stage, Stage::Showdown(true));
         assert_eq!(
             room.pots,
             vec![
