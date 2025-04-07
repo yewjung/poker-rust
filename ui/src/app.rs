@@ -83,7 +83,7 @@ impl App {
         };
         Ok(app)
     }
-
+    
     /// Run the application's main loop.
     pub async fn run(mut self, mut terminal: DefaultTerminal) -> Result<()> {
         self.running = true;
