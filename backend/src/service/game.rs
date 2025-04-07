@@ -316,7 +316,7 @@ impl GameService {
         action: ServiceRequiredAction,
         mut room: RefMut<'_, Uuid, Room>,
     ) -> Result<()> {
-        let room_id = room.id.to_string();
+        let room_id = &room.id.to_string();
 
         match action {
             ServiceRequiredAction::NoAction => {
@@ -334,12 +334,35 @@ impl GameService {
                 // emit game state
                 let game_state =
                     SharedGameState::from_room(room.clone(), true).with_eval(hands_eval);
-                self.emit_to_room(room_id, ServiceEvent::Room, &Timestamped::new(game_state))
-                    .await;
+                self.emit_to_room(
+                    room_id.clone(),
+                    ServiceEvent::Room,
+                    &Timestamped::new(game_state),
+                )
+                .await;
                 // sleep for 5 seconds to show the result
                 sleep(Duration::from_secs(5)).await;
 
-                room.split_pot(winners)?;
+                let mut pot_splits = room.split_pot(winners)?;
+                // reversing the winnings because the last item is the last pot
+                pot_splits.reverse();
+                // emit winnings
+                for winnings in pot_splits {
+                    self.emit_to_room(
+                        room_id.clone(),
+                        ServiceEvent::Outcome,
+                        &Timestamped::new(winnings),
+                    )
+                    .await;
+                    sleep(Duration::from_secs(3)).await;
+                }
+                self.emit_to_room(
+                    room_id.clone(),
+                    ServiceEvent::Outcome,
+                    &Timestamped::new(Vec::new()),
+                )
+                .await;
+
                 Box::pin(self.service_action_required(room.proceed()?, room)).await
             }
             ServiceRequiredAction::PlayerReceiveCards => {
