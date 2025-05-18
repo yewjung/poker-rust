@@ -5,7 +5,7 @@ use std::time::Duration;
 use dashmap::mapref::one::RefMut;
 use eyre::{bail, ensure, ContextCompat, Result};
 use itertools::Itertools;
-use log::{error, info};
+use log::{debug, error, info};
 use poker::{Eval, Evaluator};
 use serde::Serialize;
 use socketioxide::socket::Sid;
@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use types::domain::{Action, RoomInfo, ServiceEvent, ServiceRequiredAction};
 use types::error::Error;
-use types::room::{Hand, Player, Room, Stage};
+use types::room::{Hand, Player, Room, Stage, Winnings};
 use types::state::{PlayerHand, SharedGameState, Timestamped};
 
 use crate::repository::rooms::{RoomInfoRepository, RoomRepository};
@@ -143,6 +143,7 @@ impl GameService {
         data: &T,
     ) {
         if let Some(operator) = self.io.of("/game") {
+            debug!("Emitting event: {:?}", event);
             let result = operator.to(room).emit(event, data).await;
             if let Err(e) = result {
                 error!("Error occurred when emitting to room: {:?}", e);
@@ -322,7 +323,7 @@ impl GameService {
             ServiceRequiredAction::NoAction => {
                 // emit game state
                 let game_state = SharedGameState::from_room(room.clone(), false);
-                self.emit_to_room(room_id, ServiceEvent::Room, &Timestamped::new(game_state))
+                self.emit_to_room(room_id.to_owned(), ServiceEvent::Room, &Timestamped::new(game_state))
                     .await;
                 Ok(())
             }
@@ -359,7 +360,7 @@ impl GameService {
                 self.emit_to_room(
                     room_id.clone(),
                     ServiceEvent::Outcome,
-                    &Timestamped::new(Vec::new()),
+                    &Timestamped::new(Vec::<Winnings>::new()),
                 )
                 .await;
 
@@ -368,7 +369,7 @@ impl GameService {
             ServiceRequiredAction::PlayerReceiveCards => {
                 // emit game state
                 let game_state = SharedGameState::from_room(room.clone(), false);
-                self.emit_to_room(room_id, ServiceEvent::Room, &Timestamped::new(game_state))
+                self.emit_to_room(room_id.to_owned(), ServiceEvent::Room, &Timestamped::new(game_state))
                     .await;
 
                 for player in room.players.iter() {

@@ -16,11 +16,13 @@ use std::time::Duration;
 use tokio::sync::RwLock;
 use tokio::time::sleep;
 use types::domain::*;
+use types::room::Winnings;
 use types::state::{PlayerHand, SharedGameState, Timestamped};
 
 lazy_static! {
     pub static ref GAME_STATE: RwLock<Option<Timestamped<SharedGameState>>> = RwLock::new(None);
     pub static ref HAND_STATE: RwLock<Option<Timestamped<PlayerHand>>> = RwLock::new(None);
+    pub static ref OUTCOME_STATE: RwLock<Option<Timestamped<Vec<Winnings>>>> = RwLock::new(None);
     pub static ref CONNECTION_IS_CLOSE: AtomicBool = AtomicBool::new(false);
 }
 
@@ -95,8 +97,8 @@ pub struct Client {
     generator: RNG,
 }
 
-const BASE_URL: &str = "https://yj-api-poker.apps.bancuh.net";
-// const BASE_URL: &str = "http://localhost:8080";
+// const BASE_URL: &str = "https://yj-api-poker.apps.bancuh.net";
+const BASE_URL: &str = "http://localhost:8080";
 
 impl Default for Client {
     fn default() -> Self {
@@ -214,6 +216,7 @@ impl Client {
     pub async fn create_ws_connection(&mut self) -> Result<()> {
         let hand_callback = |payload, _| update_state(payload, &HAND_STATE).boxed();
         let room_callback = |payload, _| update_state(payload, &GAME_STATE).boxed();
+        let outcome_callback = |payload, _| update_state(payload, &OUTCOME_STATE).boxed();
         let error_callback = |payload, _| default_callback(payload).boxed();
         let default_callback = |payload, _| default_callback(payload).boxed();
         let close_callback = |_, _| update_connection_status().boxed();
@@ -226,6 +229,7 @@ impl Client {
                 .auth(token)
                 .on("hand", hand_callback)
                 .on("room", room_callback)
+                .on("outcome", outcome_callback)
                 .on("service_error", error_callback)
                 .on("error", default_callback)
                 .on("close", close_callback)

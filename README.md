@@ -42,6 +42,8 @@ stateDiagram-v2
 ```
 
 ### Run server without Docker
+1. Cd into backend directory
+2. run the following command to start the server:
 ```bash
 DATABASE_URL=postgres://user:password@localhost:5432/my_database RUST_LOG=debug cargo run
 ```

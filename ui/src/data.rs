@@ -16,6 +16,7 @@ static DING_SOUND: &[u8] = include_bytes!("../sound_assets/ding.wav");
 static CHIPS_SOUND: &[u8] = include_bytes!("../sound_assets/chips.wav");
 static CHECK_SOUND: &[u8] = include_bytes!("../sound_assets/check.mp3");
 static DEAL_SOUND: &[u8] = include_bytes!("../sound_assets/deal.wav");
+static WIN_SOUND: &[u8] = include_bytes!("../sound_assets/win.mp3");
 
 pub enum ScreenChange {
     Quit,
@@ -53,6 +54,7 @@ pub enum Sound {
     Chips,
     Check,
     Deal,
+    Win,
 }
 
 impl Sound {
@@ -62,6 +64,7 @@ impl Sound {
             Sound::Chips => CHIPS_SOUND,
             Sound::Check => CHECK_SOUND,
             Sound::Deal => DEAL_SOUND,
+            Sound::Win => WIN_SOUND,
         }
     }
 
