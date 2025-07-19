@@ -23,6 +23,10 @@ pub struct SharedGameState {
 }
 
 impl SharedGameState {
+    pub fn is_player_turn(&self, id: Uuid) -> bool {
+        self.current_player.is_some_and(|curr| curr == id)
+    }
+
     pub fn last_action_by_player(&self, player_id: Uuid) -> Option<&Action> {
         self.players
             .iter()
@@ -108,7 +112,7 @@ impl SharedGameState {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Timestamped<T> {
     pub timestamp: DateTime<Utc>,
     pub data: T,

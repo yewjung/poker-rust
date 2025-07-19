@@ -76,6 +76,7 @@ pub enum ServiceEvent {
     Room,
     Hand,
     ServiceError,
+    Outcome,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

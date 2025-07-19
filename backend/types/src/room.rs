@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-
+use std::ops::DerefMut;
 use eyre::{bail, ensure, ContextCompat, Report, Result};
 use itertools::Itertools;
 use poker::{box_cards, Card};
@@ -7,6 +7,7 @@ use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
 use socketioxide::socket::Sid;
 use uuid::Uuid;
+use tap::TapOptional;
 
 use crate::deck::Deck;
 use crate::domain::ServiceRequiredAction;
@@ -44,6 +45,12 @@ pub struct Player {
 pub struct Pot {
     pub amount: u32,
     pub players: HashSet<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Winnings {
+    pub player: Uuid,
+    pub amount: u32,
 }
 
 impl Player {
@@ -407,12 +414,21 @@ impl Room {
             .collect()
     }
 
-    pub fn split_pot(&mut self, winners: Vec<(u32, HashSet<Uuid>)>) -> Result<()> {
+    // this function does a few things:
+    // 1. it splits the pot between the winners
+    // 2. it updates the players' chips
+    // 3. it returns a nested vector of winnings, where each inner vector represents a pot split
+    pub fn split_pot(&mut self, winners: Vec<(u32, HashSet<Uuid>)>) -> Result<Vec<Vec<Winnings>>> {
+        let mut pot_splits = Vec::new();
         for (amount, winner_ids) in winners {
             let earnings = amount / winner_ids.len() as u32;
-
+            let mut winnings = Vec::new();
             self.players.iter_mut().for_each(|p| {
                 if winner_ids.contains(&p.id) {
+                    winnings.push(Winnings {
+                        player: p.id,
+                        amount: earnings,
+                    });
                     p.chips += earnings;
                 }
             });
@@ -424,8 +440,13 @@ impl Room {
                 .find(|p| p.id == remainder_winner)
                 .wrap_err("Remainder winner not found")?;
             remainder_winner.chips += remainder;
+            if let Some(w) = winnings.iter_mut()
+                .find(|w| w.player == remainder_winner.id) {
+                w.amount += remainder;
+            }
+            pot_splits.push(winnings);
         }
-        Ok(())
+        Ok(pot_splits)
     }
 
     pub fn closest_to_dealer(&self, player_ids: &HashSet<Uuid>) -> Result<Uuid> {

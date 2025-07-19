@@ -3,8 +3,9 @@ use std::fmt::Display;
 use std::iter::zip;
 
 use ansi_to_tui::IntoText;
-use client::client::{reset_game_state, reset_hand_state, Client, GAME_STATE, HAND_STATE};
+use client::client::{reset_game_state, reset_hand_state, Client, GAME_STATE, HAND_STATE, OUTCOME_STATE};
 use color_eyre::eyre;
+use color_eyre::owo_colors::OwoColorize;
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use log::debug;
 use ratatui::buffer::Buffer;
@@ -17,8 +18,8 @@ use tui_big_text::{BigText, PixelSize};
 use tui_input::backend::crossterm::EventHandler;
 use tui_input::Input;
 use types::domain::{Action, ActionRequest};
-use types::room::{Stage, MAX_NUM_OF_PLAYERS};
-use types::state::{HandState, PlayerHand, PlayerState, SerdeCard, SharedGameState};
+use types::room::{Stage, Winnings, MAX_NUM_OF_PLAYERS};
+use types::state::{HandState, PlayerHand, PlayerState, SerdeCard, SharedGameState, Timestamped};
 use uuid::Uuid;
 
 use crate::data::{highlight, OnKeyEvent, OnTick, ScreenChange, Sound};
@@ -77,18 +78,17 @@ impl StatefulWidget for InGameWidget {
             }
         }
 
-        for (hand_area, player_state) in zip(hand_areas, &mut state.game.players) {
+        for player_state in &mut state.game.players {
             if player_state.id == state.user_id
                 && !state.hand.is_empty()
                 && !matches!(player_state.hand, HandState::Revealed(_))
             {
                 player_state.reveal(state.hand.clone());
             }
-            let is_in_turn = state
-                .game
-                .current_player
-                .is_some_and(|curr| curr == player_state.id);
-            hand_paragraph(hand_area, player_state, is_in_turn, buf);
+        }
+
+        for (hand_area, player_state) in zip(hand_areas, &state.game.players) {
+            hand_paragraph(hand_area, player_state, &state.game, &state.winners, buf);
         }
 
         action_paragraph(actions, state, buf);
@@ -134,13 +134,17 @@ fn action_paragraph(area: Rect, state: &mut InGameData, buf: &mut Buffer) {
         });
 }
 
-fn hand_paragraph(area: Rect, state: &PlayerState, in_turn: bool, buf: &mut Buffer) {
+fn hand_paragraph(area: Rect, state: &PlayerState, game_state: &SharedGameState, winners: &Timestamped<Vec<Winnings>>, buf: &mut Buffer) {
     let mut outer_block = Block::bordered()
         .title(Line::from(state.title_top()).centered())
         .title_bottom(Line::from(state.name_title()).left_aligned())
         .border_type(BorderType::Rounded);
 
-    if in_turn {
+    if game_state.stage.is_showdown() {
+        if winners.data.iter().any(|w| w.player == state.id) {
+            outer_block = outer_block.border_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::SLOW_BLINK))
+        }
+    } else if game_state.is_player_turn(state.id) {
         outer_block = outer_block.border_style(Style::default().add_modifier(Modifier::SLOW_BLINK));
     }
 
@@ -191,6 +195,7 @@ pub struct InGameData {
     pub prev_frame_player: Option<Uuid>,
     // The previous frame's stage of the game
     pub prev_frame_stage: Stage,
+    pub winners: Timestamped<Vec<Winnings>>
 }
 
 impl InGameData {
@@ -378,6 +383,15 @@ impl OnTick for InGameData {
 
         if let Ok(Some(hand_state)) = HAND_STATE.try_read().as_deref() {
             self.hand = hand_state.data.clone();
+        }
+
+        if let Ok(Some(winnings)) = OUTCOME_STATE.try_read().as_deref() {
+            if self.winners.timestamp != winnings.timestamp {
+                self.winners = winnings.clone();
+                if self.winners.data.iter().any(|w| w.player == self.user_id) {
+                    Sound::Win.play();
+                }
+            }
         }
 
         // play sounds for player's actions
