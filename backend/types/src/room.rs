@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::ops::DerefMut;
 use eyre::{bail, ensure, ContextCompat, Report, Result};
 use itertools::Itertools;
 use poker::{box_cards, Card};
@@ -7,7 +6,6 @@ use ratatui::text::Line;
 use serde::{Deserialize, Serialize};
 use socketioxide::socket::Sid;
 use uuid::Uuid;
-use tap::TapOptional;
 
 use crate::deck::Deck;
 use crate::domain::ServiceRequiredAction;

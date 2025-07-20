@@ -15,6 +15,7 @@ use socketioxide::extract::{Data, HttpExtension};
 use socketioxide::{extract::SocketRef, SocketIo};
 use sqlx::types::Uuid;
 use sqlx::PgPool;
+use tower_http::services::ServeDir;
 
 use types::domain::{
     ActionRequest, ClientEvent, JoinGameRequest, LoginRequest, ServiceEvent, SignupRequest,
@@ -84,6 +85,8 @@ async fn main() -> Result<()> {
         user_service: UserService { user_repository },
     };
 
+    let static_files = ServeDir::new("dist");
+
     // routes
     let router = Router::new()
         .route("/games", get(get_room_states))
@@ -92,6 +95,7 @@ async fn main() -> Result<()> {
         .route("/profile", patch(update_profile))
         .route("/profile", get(get_profile))
         .route("/rooms", get(get_rooms))
+        .fallback_service(static_files)
         .layer(socket_layer)
         .layer(Extension(api));
 

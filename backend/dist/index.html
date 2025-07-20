@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, user-scalable=no"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/fira_code.min.css"
+    />
+    <title>homepage</title>
+    <style>
+      body {
+        margin: 0;
+        width: 100%;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        align-content: center;
+        background-color: #121212;
+      }
+      pre {
+        font-family: "Fira Code", monospace;
+        font-size: 16px;
+        margin: 0px;
+      }
+    </style>
+  <link rel="modulepreload" href="/homepage-7f79434613757d56.js" crossorigin="anonymous" integrity="sha384-xWZir4Whep5XM232yCoXUJmq8OvP/BX2bErIgPoKBRRqQEkb842Lx2xSNgszjefV"><link rel="preload" href="/homepage-7f79434613757d56_bg.wasm" crossorigin="anonymous" integrity="sha384-86xctXf7IRTXo/+Jq9qpkn0fulykyvUqZiMQQt+0VMBHYNnERY8JaEegxrPSg8z/" as="fetch" type="application/wasm"></head>
+  <body>
+    <script type="module">
+      import init from "./pkg/ratzilla.js";
+      init();
+    </script>
+  
+<script type="module">
+import init, * as bindings from '/homepage-7f79434613757d56.js';
+const wasm = await init({ module_or_path: '/homepage-7f79434613757d56_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script></body>
+</html>
