@@ -97,9 +97,9 @@ pub struct Client {
     generator: RNG,
 }
 
-const BASE_URL: &str = "http://yj-api-poker.ragib.cloudns.org:8080";
+// const BASE_URL: &str = "http://yj-api-poker.ragib.cloudns.org:8080";
 // const BASE_URL: &str = "https://yj-api-poker.apps.bancuh.net";
-// const BASE_URL: &str = "http://localhost:8080";
+const BASE_URL: &str = "https://poker.yewjung.com";
 
 impl Default for Client {
     fn default() -> Self {
