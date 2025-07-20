@@ -16,4 +16,5 @@ RUN mv ./target/release/backend ./app
 FROM debian:stable-slim AS runtime
 WORKDIR /app
 COPY --from=builder /app/app /usr/local/bin/
+COPY ./backend/dist ./dist
 ENTRYPOINT ["/usr/local/bin/app"]
