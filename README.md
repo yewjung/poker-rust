@@ -24,3 +24,6 @@ then, run the command below to start the game:
 ```bash
 ui
 ```
+
+## Screenshots
+![Login](./images/login.png)
