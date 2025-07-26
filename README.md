@@ -19,6 +19,11 @@ Then, install the game with:
 ```bash
 cargo install --git https://www.github.com/yewjung/poker-rust ui
 ```
+then, run the command below to start the game:
+
+```bash
+ui
+```
 
 ### Run server without Docker
 1. Cd into backend directory
