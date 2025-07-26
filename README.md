@@ -27,4 +27,5 @@ ui
 
 ## Screenshots
 ![Login](./images/login.png)
-![Lobby](./images/lobby.png)
+![Lobby](./images/lobby.png)  
+![NoCards](./images/no_cards.png)
