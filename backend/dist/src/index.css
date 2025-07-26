@@ -463,13 +463,20 @@ label input {
 }
 
 .highlight {
-  color: limegreen;
+  color: green;
   font-weight: bold;
 }
 
 .fun-stuff {
   color: magenta;
   font-weight: bold;
+}
+
+@media (prefers-color-scheme: dark) {
+  .highlight {
+    color: limegreen;
+    font-weight: bold;
+  }
 }
 
 .resume-link-container {
