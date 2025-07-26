@@ -1,46 +1,109 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, user-scalable=no"
-    />
-    <link
-      rel="stylesheet"
-      href="https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/fira_code.min.css"
-    />
-    <title>homepage</title>
-    <style>
-      body {
-        margin: 0;
-        width: 100%;
-        height: 100vh;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        align-content: center;
-        background-color: #121212;
-      }
-      pre {
-        font-family: "Fira Code", monospace;
-        font-size: 16px;
-        margin: 0px;
-      }
-    </style>
-  <link rel="modulepreload" href="/homepage-91fc0a0e87c51afc.js" crossorigin="anonymous" integrity="sha384-WljIVyF74r9NmH19XNPuRqZHdaMJrJ/EJ/xuCRxXgsGcTxEplWCwNOw/SlL3GCAu"><link rel="preload" href="/homepage-91fc0a0e87c51afc_bg.wasm" crossorigin="anonymous" integrity="sha384-uRvpJpvfZXPXfyNZKYn+8xhzvfMdJUOp6eD6HlE0+Bh7cC4yBfZlTNQVhy3OA1Di" as="fetch" type="application/wasm"></head>
-  <body>
-  
-<script type="module">
-import init, * as bindings from '/homepage-91fc0a0e87c51afc.js';
-const wasm = await init({ module_or_path: '/homepage-91fc0a0e87c51afc_bg.wasm' });
-
-
-window.wasmBindings = bindings;
-
-
-dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
-
-</script></body>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <meta name="author" content="Yew Jung Sien" />
+  <title>Yew Jung Sien</title>
+  <link rel="stylesheet" href="src/reset.css" />
+  <link rel="stylesheet" href="src/index.css" />
+</head>
+<body>
+<table class="header">
+  <tr>
+    <td colspan="2" rowspan="2" class="width-auto">
+      <h1 class="title">Yew Jung Sien</h1>
+      <span class="subtitle"></span>
+    </td>
+    <th>Version</th>
+    <td class="width-min">v0.1.5</td>
+  </tr>
+  <tr>
+    <th>Updated</th>
+    <td class="width-min"><time style="white-space: pre;">2025-07-26</time></td>
+  </tr>
+</table>
+<nav id="TOC" role="doc-toc">
+<h2 id="summary">Summary</h2>
+<p>Backend engineer with 5+ years of experience building scalable
+systems in fintech. Skilled in leading architecture, improving
+performance, and delivering product features end-to-end.</p>
+<hr>
+<h2 id="fun-stuffs" class="fun-stuff">Fun Stuffs</h2>
+<h3 id="multiplayer-poker"><a
+href="https://www.github.com/yewjung/poker-rust"><span class="highlight">Multiplayer
+    Poker</span></a></h3>
+<ul class="incremental">
+    <li>Built a real-time multiplayer Texas Hold ’Em game using <span class="highlight">Rust</span></li>
+    <li>Developed the <span class="highlight">terminal-based client UI</span> with Ratatui, providing an
+interactive and responsive TUI experience</li>
+<li>Implemented game state synchronization, room and player management
+    and concurrent gameplay using <span class="highlight">WebSocket</span></li>
+    <li>Used <span class="highlight">Redis</span> and <span class="highlight">PostgreSQL</span> for real-time game state and persistent
+storage</li>
+</ul>
+<h3 id="deck-api"><a href="https://www.github.com/yewjung/deck"><span class="highlight">Deck
+    API</span></a></h3>
+<ul class="incremental">
+    <li>Developed a RESTful API in <span class="highlight">Go</span> to simulate a 52-card deck</li>
+    <li>Used <span class="highlight">Redis</span> for fast, im-memory state storage and efficient deck
+management</li>
+</ul>
+<hr>
+<h2 id="experience">Experience</h2>
+<h3 id="backend-engineer-bigpay-2023---present">Backend Engineer @
+BigPay (2023 - Present)</h3>
+<ul class="incremental">
+<li><span class="highlight">Led the architecture and implementation</span> of credit and debit card
+top-ups, enabling seamless funding of user wallets at scale</li>
+<li><span class="highlight">Designed and built</span> a new in-person onboarding flow, significantly
+streamlining the signup process for face-to-face customer
+interactions</li>
+<li><span class="highlight">Led the development</span> of a feature enabling users to make charity
+donations through the app, integrating with external partners to ensure
+secure, user-friendly transactions.</li>
+<li><span class="highlight">Redesigned a core transaction storage system</span>, improving performance,
+reliability, and maintainability while reducing system complexity.
+Oversaw the migration of all historical transaction data with zero
+downtime.</li>
+<li><span class="highlight">Architected and delivered</span> a budget tracking service that empowers
+users to set and monitor overall and category-specific spending limits.
+Integrated real-time push notifications to proactively alert users when
+budgets are exceeded.</li>
+<li><span class="highlight">Built a real-time monitoring and alerting infrastructure</span> using
+Grafana and Prometheus to detect unusual user behaviours and potential
+malicious activities. This system ensures early intervention and
+platform security.</li>
+<li><span class="highlight">Integrated Singpass</span>, Singapore’s digital identity service, into the
+signup flow for Singaporean users, ensuring seamless onboarding
+experience.</li>
+<li>Stack: Rust, Java, Kotlin, Spring Boot, Redis, PostgreSQL, Kafka,
+Prometheus, Grafana</li>
+</ul>
+<h3
+id="senior-software-engineer-theta-service-partner-2023---2023">Senior
+Software Engineer @ Theta Service Partner (2023 - 2023)</h3>
+<ul class="incremental">
+    <li><span class="highlight">Led and design and implementation</span> of an internal backend framework
+to streamline workflows and improve engineering efficiency</li>
+    <li><span class="highlight">Optimized loan system performance</span> for financial clients achieving a
+10x reduction in response time.</li>
+    <li><span class="highlight">Mentored and onboarded</span> new engineers, helping them ramp up quickly
+and contribute effectively to client projects.</li>
+<li>Stack: Java, Spring Boot, Angular, Vue, SQL Server</li>
+</ul>
+<h3 id="software-engineer-theta-service-partner-2019---2023">Software
+Engineer @ Theta Service Partner (2019 - 2023)</h3>
+<ul class="incremental">
+<li>Created internal tools, optimising team workflows and
+productivity</li>
+<li>Provided support to UK-based client projects and managed server
+deployment for seamless system operations</li>
+<li>Stack: Java, Spring Boot, Angular, Vue, SQL Server
+</li>
+</ul>
+  <div class="debug-grid"></div>
+  <script src="src/index.js"></script>
+</body>
 </html>
