@@ -2,7 +2,7 @@ use std::ops::Deref;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::http::StatusCode;
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
@@ -95,6 +95,7 @@ async fn main() -> Result<()> {
         .route("/profile", patch(update_profile))
         .route("/profile", get(get_profile))
         .route("/rooms", get(get_rooms))
+        .route("/resume", get(resume_pdf))
         .fallback_service(static_files)
         .layer(socket_layer)
         .layer(Extension(api));
@@ -102,6 +103,28 @@ async fn main() -> Result<()> {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     axum::serve(listener, router).await?;
     Ok(())
+}
+
+async fn resume_pdf() -> impl IntoResponse {
+    let file_path = "static/resume.pdf";
+    match tokio::fs::read(file_path).await {
+        Ok(contents) => {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::CONTENT_TYPE, "application/pdf".parse().unwrap());
+            headers.insert(
+                header::CONTENT_DISPOSITION,
+                "attachment; filename=\"Yew-Jung-Sien-Resume.pdf\""
+                    .parse()
+                    .unwrap(),
+            );
+            (headers, contents)
+                .into_response()
+        }
+        Err(e) => {
+            error!("Failed to read resume PDF: {:?}", e);
+            StatusCode::NOT_FOUND.into_response()
+        }
+    }
 }
 
 async fn signup(

@@ -471,3 +471,8 @@ label input {
   color: magenta;
   font-weight: bold;
 }
+
+.resume-link-container {
+  display: flex;
+  justify-content: flex-end; /* pushes the link to the right */
+}
