@@ -18,6 +18,10 @@ function adjustMediaPadding() {
       const realHeight = rect.width / ratio;
       const diff = cell.height - (realHeight % cell.height);
       media.style.setProperty("padding-bottom", `${diff}px`);
+      // if it has class = "github-image", set padding-bottom to zero
+      if (media.classList.contains("github-image")) {
+            media.style.setProperty("padding-bottom", "0px");
+      }
   }
 
   function setFallbackHeight(media) {

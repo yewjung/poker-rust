@@ -483,3 +483,9 @@ label input {
   display: flex;
   justify-content: flex-end; /* pushes the link to the right */
 }
+
+.github-image {
+  height: 18px;
+  width: auto;
+  display: inline;
+}
