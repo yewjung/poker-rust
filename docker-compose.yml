@@ -2,31 +2,31 @@ version: '3.8'
 
 services:
   postgres:
-    image: postgres:13 # PostgreSQL image
+    image: postgres:13
     container_name: postgres_db
     restart: always
     ports:
-      - "5432:5432"  # Maps PostgreSQL's default port to your host
+      - "5432:5432"
     environment:
-      POSTGRES_USER: user          # Replace with your desired username
-      POSTGRES_PASSWORD: password  # Replace with your desired password
-      POSTGRES_DB: my_database     # Replace with your desired database name
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: my_database
     volumes:
-      - postgres_data:/var/lib/postgresql/data  # Persistent data storage
+      - postgres_data:/var/lib/postgresql/data
 
   rust_web_server:
     build:
-      context: . # Path to your Rust server source code
-      dockerfile: Dockerfile      # Dockerfile to build the Rust application
+      context: .
+      dockerfile: Dockerfile
     container_name: rust_server
     restart: always
     ports:
-      - "8080:8080"  # Exposes your Rust web server on port 8080
+      - "8080:8080"
     environment:
       DATABASE_URL: postgres://user:password@postgres:5432/my_database
       RUST_LOG: debug
     depends_on:
-      - postgres  # Ensures the database service starts before the Rust server
+      - postgres
 
 volumes:
   postgres_data:

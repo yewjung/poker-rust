@@ -3,22 +3,19 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use crate::data::{OnKeyEvent, OnTick, Screen, ScreenChange};
-use crate::game::{in_game_data, InGameWidget};
+use crate::game::InGameWidget;
 use crate::lobby::{lobby_screen_data, LobbyWidget};
 use crate::login::LoginScreenWidget;
 use crate::TOKEN_MANAGER;
 use chrono::{DateTime, Utc};
 use client::client::{Client, CONNECTION_IS_CLOSE};
-use color_eyre::eyre::ContextCompat;
 use color_eyre::Result;
 use crossterm::event::{self, Event, KeyEvent};
-use poker::{Card, Rank, Suit};
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 use ratatui::{DefaultTerminal, Frame};
-use types::state::{PlayerHand, SerdeCard, SharedGameState};
 
 pub struct App {
     /// Is the application running?
